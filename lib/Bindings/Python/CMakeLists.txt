@@ -20,6 +20,7 @@ add_mlir_python_extension(CIRCTBindingsPythonExtension _circt
   LINK_LIBS
     CIRCTCAPIComb
     CIRCTCAPIESI
+    CIRCTCAPIFIRRTL
     CIRCTCAPIMSFT
     CIRCTCAPIHW
     CIRCTCAPISeq
@@ -106,6 +107,11 @@ add_mlir_dialect_python_bindings(CIRCTBindingsPythonESIOps
   TD_FILE ESIOps.td
   DIALECT_NAME esi)
 add_dependencies(CIRCTBindingsPythonSources CIRCTBindingsPythonESIOps)
+
+add_mlir_dialect_python_bindings(CIRCTBindingsPythonFIRRTLOps
+  TD_FILE FIRRTLOps.td
+  DIALECT_NAME firrtl)
+add_dependencies(CIRCTBindingsPythonSources CIRCTBindingsPythonFIRRTLOps)
 
 add_mlir_dialect_python_bindings(CIRCTBindingsPythonHWOps
   TD_FILE HWOps.td

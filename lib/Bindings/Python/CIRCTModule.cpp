@@ -10,6 +10,7 @@
 
 #include "circt-c/Dialect/Comb.h"
 #include "circt-c/Dialect/ESI.h"
+#include "circt-c/Dialect/FIRRTL.h"
 #include "circt-c/Dialect/HW.h"
 #include "circt-c/Dialect/MSFT.h"
 #include "circt-c/Dialect/SV.h"
@@ -27,6 +28,7 @@
 namespace py = pybind11;
 
 static void registerPasses() {
+  registerFIRRTLPasses();
   registerSeqPasses();
   registerSVPasses();
 }
@@ -52,6 +54,10 @@ PYBIND11_MODULE(_circt, m) {
         MlirDialectHandle esi = mlirGetDialectHandle__esi__();
         mlirDialectHandleRegisterDialect(esi, context);
         mlirDialectHandleLoadDialect(esi, context);
+
+        MlirDialectHandle firrtl = mlirGetDialectHandle__firrtl__();
+        mlirDialectHandleRegisterDialect(firrtl, context);
+        mlirDialectHandleLoadDialect(firrtl, context);
 
         MlirDialectHandle msft = mlirGetDialectHandle__msft__();
         mlirDialectHandleRegisterDialect(msft, context);

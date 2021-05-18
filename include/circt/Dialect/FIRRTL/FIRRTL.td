@@ -40,10 +40,10 @@ def FIRRTLDialect : Dialect {
 class FIRRTLOp<string mnemonic, list<OpTrait> traits = []> :
     Op<FIRRTLDialect, mnemonic, traits>;
 
-include "FIRRTLTypes.td"
-include "FIRRTLStructure.td"
-include "FIRRTLDeclarations.td"
-include "FIRRTLExpressions.td"
-include "FIRRTLStatements.td"
+include "circt/Dialect/FIRRTL/FIRRTLTypes.td"
+include "circt/Dialect/FIRRTL/FIRRTLStructure.td"
+include "circt/Dialect/FIRRTL/FIRRTLDeclarations.td"
+include "circt/Dialect/FIRRTL/FIRRTLExpressions.td"
+include "circt/Dialect/FIRRTL/FIRRTLStatements.td"
 
 #endif // FIRRTL_TD

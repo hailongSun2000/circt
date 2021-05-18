@@ -13,7 +13,7 @@
 #ifndef CIRCT_DIALECT_FIRRTL_PASSES_H
 #define CIRCT_DIALECT_FIRRTL_PASSES_H
 
-#include <memory>
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 class Pass;
