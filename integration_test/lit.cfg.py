@@ -63,8 +63,14 @@ config.test_exec_root = os.path.join(config.circt_obj_root, 'integration_test')
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 # Substitute '%l' with the path to the build lib dir.
 
-# Tweak the PYTHONPATH to include the binary dir.
 if config.bindings_python_enabled:
+  # Tweak the LD_LIBRARY_PATH to allow the Python bindings to find the shared
+  # libraries.
+  llvm_config.with_environment('LD_LIBRARY_PATH',
+                               [config.llvm_shlib_dir, config.circt_shlib_dir],
+                               append_path=True)
+
+  # Tweak the PYTHONPATH to include the binary dir.
   llvm_config.with_environment('PYTHONPATH', [
       os.path.join(config.llvm_obj_root, 'python'),
       os.path.join(config.circt_obj_root, 'python')
