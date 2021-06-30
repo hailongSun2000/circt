@@ -10,11 +10,13 @@
 #define CIRCT_DIALECT_VERIF_VERIF_H
 
 #include "circt/Support/LLVM.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/FunctionSupport.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/RegionKindInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "circt/Dialect/Verif/VerifDialect.h.inc"
