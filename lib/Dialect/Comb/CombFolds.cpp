@@ -900,10 +900,10 @@ LogicalResult MuxOp::canonicalize(MuxOp op, PatternRewriter &rewriter) {
 // ICmpOp
 //===----------------------------------------------------------------------===//
 
-// Calculate the result of a comparison when the LHS and RHS are both
-// constants.
-static bool applyCmpPredicate(ICmpPredicate predicate, const APInt &lhs,
-                              const APInt &rhs) {
+/// Calculate the result of a comparison when the LHS and RHS are both
+/// constants.
+bool comb::applyCmpPredicate(ICmpPredicate predicate, const APInt &lhs,
+                             const APInt &rhs) {
   switch (predicate) {
   case ICmpPredicate::eq:
     return lhs.eq(rhs);
@@ -929,9 +929,9 @@ static bool applyCmpPredicate(ICmpPredicate predicate, const APInt &lhs,
   llvm_unreachable("unknown comparison predicate");
 }
 
-// Returns the result of applying the predicate when the LHS and RHS are the
-// exact same value.
-static bool applyCmpPredicateToEqualOperands(ICmpPredicate predicate) {
+/// Returns the result of applying the predicate when the LHS and RHS are the
+/// exact same value.
+bool comb::applyCmpPredicateToEqualOperands(ICmpPredicate predicate) {
   switch (predicate) {
   case ICmpPredicate::eq:
   case ICmpPredicate::sle:
