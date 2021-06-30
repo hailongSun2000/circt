@@ -28,6 +28,7 @@ target_link_libraries(circt-opt
   CIRCTSV
   CIRCTSVTransforms
   CIRCTTransforms
+  CIRCTVerif
 
   MLIRIR
   MLIRLLVMIR

@@ -25,6 +25,7 @@
 #include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Dialect/StaticLogic/StaticLogic.h"
+#include "circt/Dialect/Verif/Verif.h"
 #include "mlir/IR/Dialect.h"
 
 namespace circt {
@@ -43,7 +44,8 @@ inline void registerAllDialects(mlir::DialectRegistry &registry) {
     hw::HWDialect,
     seq::SeqDialect,
     staticlogic::StaticLogicDialect,
-    sv::SVDialect
+    sv::SVDialect,
+    verif::VerifDialect
   >();
   // clang-format on
 }
