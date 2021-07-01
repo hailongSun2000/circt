@@ -174,10 +174,37 @@ LogicalResult State::evaluate(Operation *op, ArrayRef<APInt> operands) {
           result += operand;
         store(op.getResult(), result);
       })
+      .Case<comb::AndOp>([&](auto op) {
+        auto result = operands[0];
+        for (auto operand : operands.drop_front())
+          result &= operand;
+        store(op.getResult(), result);
+      })
+      .Case<comb::OrOp>([&](auto op) {
+        auto result = operands[0];
+        for (auto operand : operands.drop_front())
+          result |= operand;
+        store(op.getResult(), result);
+      })
+      .Case<comb::XorOp>([&](auto op) {
+        auto result = operands[0];
+        for (auto operand : operands.drop_front())
+          result ^= operand;
+        store(op.getResult(), result);
+      })
       .Case<comb::ICmpOp>([&](auto op) {
         auto result =
             comb::applyCmpPredicate(op.predicate(), operands[0], operands[1]);
         store(op.getResult(), APInt(1, result));
+      })
+      .Case<comb::ConcatOp>([&](auto op) {
+        auto result = APInt(op.getType().getWidth(), 0);
+        for (auto it : llvm::zip(operands, op.getOperandTypes())) {
+          result <<= std::get<1>(it).template cast<IntegerType>().getWidth();
+          result |= std::get<0>(it).zextOrSelf(result.getBitWidth());
+        }
+        LLVM_DEBUG(llvm::dbgs() << "Concated " << op.getType() << "\n");
+        store(op.getResult(), result);
       })
       .Default([&](auto op) {
         op->emitOpError("unsupported for verification");
@@ -320,8 +347,8 @@ static LogicalResult execute(MLIRContext &context, llvm::SourceMgr &sourceMgr,
   pm.enableTiming(ts);
   applyPassManagerCLOptions(pm);
 
-  pm.addPass(createCSEPass());
-  pm.addPass(createSimpleCanonicalizerPass());
+  // pm.addPass(createCSEPass());
+  // pm.addPass(createSimpleCanonicalizerPass());
 
   // Run the pass manager.
   if (failed(pm.run(module.get())))
