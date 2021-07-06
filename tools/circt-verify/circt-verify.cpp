@@ -174,6 +174,18 @@ LogicalResult State::evaluate(Operation *op, ArrayRef<APInt> operands) {
           result += operand;
         store(op.getResult(), result);
       })
+      .Case<comb::SubOp>([&](auto op) {
+        auto result = operands[0];
+        for (auto operand : operands.drop_front())
+          result -= operand;
+        store(op.getResult(), result);
+      })
+      .Case<comb::MulOp>([&](auto op) {
+        auto result = operands[0];
+        for (auto operand : operands.drop_front())
+          result *= operand;
+        store(op.getResult(), result);
+      })
       .Case<comb::AndOp>([&](auto op) {
         auto result = operands[0];
         for (auto operand : operands.drop_front())
@@ -203,8 +215,27 @@ LogicalResult State::evaluate(Operation *op, ArrayRef<APInt> operands) {
           result <<= std::get<1>(it).template cast<IntegerType>().getWidth();
           result |= std::get<0>(it).zextOrSelf(result.getBitWidth());
         }
-        LLVM_DEBUG(llvm::dbgs() << "Concated " << op.getType() << "\n");
         store(op.getResult(), result);
+      })
+      .Case<comb::ExtractOp>([&](auto op) {
+        store(
+            op.getResult(),
+            operands[0].lshr(op.lowBit()).truncOrSelf(op.getType().getWidth()));
+      })
+      .Case<comb::SExtOp>([&](auto op) {
+        store(op.getResult(), operands[0].sextOrSelf(op.getType().getWidth()));
+      })
+      .Case<comb::MuxOp>([&](auto op) {
+        auto result = operands[0].isNullValue() ? operands[2] : operands[1];
+        store(op.getResult(), result);
+      })
+      .Case<comb::ShlOp>(
+          [&](auto op) { store(op.getResult(), operands[0].shl(operands[1])); })
+      .Case<comb::ShrUOp>([&](auto op) {
+        store(op.getResult(), operands[0].lshr(operands[1]));
+      })
+      .Case<comb::ShrSOp>([&](auto op) {
+        store(op.getResult(), operands[0].ashr(operands[1]));
       })
       .Default([&](auto op) {
         op->emitOpError("unsupported for verification");
