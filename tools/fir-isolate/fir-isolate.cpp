@@ -86,7 +86,7 @@ struct Marker {
   Marker(ModuleOp rootOp) : rootOp(rootOp) {}
   LogicalResult findAndMarkObject(StringRef path);
   void expandFanIn();
-  void expandConnects(Value subaccess, FieldRef within, FieldRef matches);
+  void expandConnects(Value subaccess, FieldRef within, FieldRef target);
 
   void preserve(Operation *op) {
     if (preservedOps.insert(op).second)
@@ -160,11 +160,86 @@ LogicalResult Marker::findAndMarkObject(StringRef path) {
     return success();
   }
 
-  // TODO: Resolve into fields.
+  // Process fields and indices.
+  FieldRef currentField(currentOp->getResult(0), 0);
+  FIRRTLType currentType = currentField.getValue().getType().cast<FIRRTLType>();
+  while (!currentPath.empty()) {
+    // Handle field accesses.
+    if (currentPath.consume_front(".")) {
+      // Extract the field name.
+      nextSep = currentPath.find_first_of(".[");
+      auto name = currentPath.slice(0, nextSep);
+      currentPath = currentPath.slice(nextSep, currentPath.npos);
 
-  mlir::emitError(currentOp->getLoc(), "subaccess `")
-      << currentPath << "` not yet supported";
-  return failure();
+      // Ensure we have a bundle we can access into.
+      auto bundleType = currentType.dyn_cast<BundleType>();
+      if (!bundleType) {
+        mlir::emitError(currentOp->getLoc(), "cannot access `")
+            << name << "`: `" << getFieldName(currentField)
+            << "` is not a bundle";
+        return failure();
+      }
+
+      // Resolve the accessed field.
+      auto index = bundleType.getElementIndex(name);
+      if (!index.hasValue()) {
+        mlir::emitError(currentOp->getLoc(), "no field `")
+            << name << "` in bundle `" << getFieldName(currentField) << "`";
+        return failure();
+      }
+      currentField =
+          FieldRef(currentField.getValue(),
+                   currentField.getFieldID() + bundleType.getFieldID(*index));
+      currentType = bundleType.getElement(*index).type;
+      continue;
+    }
+
+    // Handle index accesses.
+    if (currentPath.consume_front("[")) {
+      // Extract the index.
+      unsigned index;
+      if (currentPath.consumeInteger(0, index)) {
+        mlir::emitError(currentOp->getLoc(),
+                        "invalid element index in object path `")
+            << currentPath << "`";
+        return failure();
+      }
+      if (!currentPath.consume_front("]")) {
+        mlir::emitError(currentOp->getLoc(), "expected `]` in object path `")
+            << currentPath << "`";
+        return failure();
+      }
+
+      // Ensure we have a vector we can access into.
+      auto vectorType = currentType.dyn_cast<FVectorType>();
+      if (!vectorType) {
+        mlir::emitError(currentOp->getLoc(), "cannot access index `")
+            << index << "`: `" << getFieldName(currentField)
+            << "` is not a vector";
+        return failure();
+      }
+
+      // Resolve the accessed index.
+      if (index >= vectorType.getNumElements()) {
+        mlir::emitError(currentOp->getLoc(), "no index `")
+            << index << "` in vector `" << getFieldName(currentField) << "`";
+        return failure();
+      }
+      currentField =
+          FieldRef(currentField.getValue(),
+                   currentField.getFieldID() + vectorType.getFieldID(index));
+      currentType = vectorType.getElementType();
+      continue;
+    }
+
+    mlir::emitError(currentOp->getLoc(), "expected `.` or `[` in object path `")
+        << currentPath << "`";
+    return failure();
+  }
+
+  // Mark this field as to be preserved.
+  preserve(currentField);
+  return success();
 }
 
 void Marker::expandFanIn() {
@@ -198,9 +273,16 @@ void Marker::expandFanIn() {
     while (!worklistOps.empty()) {
       Operation *op = worklistOps.pop_back_val();
 
-      // Preserve all the inputs that contribute to the operation.
-      for (const auto &operand : op->getOperands())
-        preserve(FieldRef(operand, 0));
+      // Preserve all the inputs that contribute to the operation. Subindex and
+      // subfield are special in that they explicitly only preserve the accessed
+      // field.
+      TypeSwitch<Operation *>(op)
+          .Case<SubfieldOp, SubindexOp>(
+              [&](auto op) { preserve(op.getAccessedField()); })
+          .Default([&](auto op) {
+            for (const auto &operand : op->getOperands())
+              preserve(FieldRef(operand, 0));
+          });
 
       // Preserve the parent operation.
       if (auto parentOp = op->getParentOp())
@@ -213,23 +295,112 @@ void Marker::expandFanIn() {
   }
 }
 
-/// Considers all drives to subaccess, looking through further subaccesses, and
-/// preserves drives that touch the given `matches` field in any way.
-void Marker::expandConnects(Value subaccess, FieldRef within,
-                            FieldRef matches) {
-  for (const auto &use : subaccess.getUses()) {
-    Operation *op = use.getOwner();
-    // llvm::errs() << "- Use " << *op << "\n";
+/// Get the type of a nested field within a type.
+static FIRRTLType getFieldType(FIRRTLType type, unsigned fieldID) {
+  while (fieldID) {
+    if (auto bundleType = type.dyn_cast<BundleType>()) {
+      auto index = bundleType.getIndexForFieldID(fieldID);
+      type = bundleType.getElement(index).type;
+      fieldID = fieldID - bundleType.getFieldID(index);
+    } else if (auto vectorType = type.dyn_cast<FVectorType>()) {
+      auto index = vectorType.getIndexForFieldID(fieldID);
+      type = vectorType.getElementType();
+      fieldID = fieldID - vectorType.getFieldID(index);
+    } else {
+      // If we reach here, the field ref is pointing inside some aggregate type
+      // that isn't a bundle or a vector. If the type is a ground type, then the
+      // fieldID should be 0 at this point, and we should have broken from the
+      // loop.
+      llvm::errs() << "Accessing " << fieldID << " inside " << type << "\n";
+      llvm_unreachable("unsupported type");
+    }
+  }
+  return type;
+}
 
-    TypeSwitch<Operation *>(op)
-        .Case<SubindexOp, SubfieldOp, SubaccessOp>([&](auto op) {
-          // TODO: Update the `within` field to point at the accessed field.
-          expandConnects(op, within, matches);
+static void forEachConnectedField(
+    FIRRTLType lhsType, FieldRef lhs, FIRRTLType rhsType, FieldRef rhs,
+    bool flipped, llvm::function_ref<void(FieldRef, FieldRef, bool)> callback) {
+  if (auto lhsBundle = lhsType.dyn_cast<BundleType>()) {
+    auto rhsBundle = rhsType.cast<BundleType>();
+    for (unsigned lhsIndex = 0, e = lhsBundle.getNumElements(); lhsIndex < e;
+         ++lhsIndex) {
+      auto lhsField = lhsBundle.getElements()[lhsIndex].name.getValue();
+      auto rhsIndex = rhsBundle.getElementIndex(lhsField);
+      if (!rhsIndex)
+        continue;
+      auto &lhsElt = lhsBundle.getElements()[lhsIndex];
+      auto &rhsElt = rhsBundle.getElements()[*rhsIndex];
+      forEachConnectedField(
+          lhsElt.type, lhs.getSubField(lhsBundle.getFieldID(lhsIndex)),
+          rhsElt.type, rhs.getSubField(rhsBundle.getFieldID(*rhsIndex)),
+          flipped ^ lhsElt.isFlip, callback);
+    }
+  } else if (auto lhsVecType = lhsType.dyn_cast<FVectorType>()) {
+    auto rhsVecType = rhsType.cast<FVectorType>();
+    auto numElements =
+        std::min(lhsVecType.getNumElements(), rhsVecType.getNumElements());
+    for (unsigned i = 0; i < numElements; ++i)
+      forEachConnectedField(lhsVecType.getElementType(),
+                            lhs.getSubField(lhsVecType.getFieldID(i)),
+                            rhsVecType.getElementType(),
+                            rhs.getSubField(rhsVecType.getFieldID(i)), flipped,
+                            callback);
+  } else if (lhsType.isGround()) {
+    // Leaf element, look up their expressions, and create the constraint.
+    callback(lhs, rhs, flipped);
+  } else {
+    llvm_unreachable("unknown type inside a bundle!");
+  }
+}
+
+/// Invoke a callback for each leaf field that is connected.
+static void forEachConnectedField(
+    FieldRef lhs, FieldRef rhs,
+    llvm::function_ref<void(FieldRef, FieldRef, bool)> callback) {
+  auto lhsType = getFieldType(lhs.getValue().getType().cast<FIRRTLType>(),
+                              lhs.getFieldID());
+  auto rhsType = getFieldType(rhs.getValue().getType().cast<FIRRTLType>(),
+                              rhs.getFieldID());
+  forEachConnectedField(lhsType, lhs, rhsType, rhs, false, callback);
+}
+
+/// Considers all drives to subaccess, looking through further subaccesses, and
+/// preserves drives that touch the given target field in any way.
+void Marker::expandConnects(Value subaccess, FieldRef within, FieldRef target) {
+  for (const auto &use : subaccess.getUses()) {
+    TypeSwitch<Operation *>(use.getOwner())
+        .Case<SubfieldOp, SubindexOp>([&](auto op) {
+          // Check if this subfield contains the target field, in which case we
+          // are interested in preserving it. Otherwise skip.
+          FieldRef newField =
+              within.getSubField(op.getAccessedField().getFieldID());
+          auto fieldType = op.getType();
+          if (target.getFieldID() < newField.getFieldID() ||
+              target.getFieldID() >
+                  newField.getFieldID() + fieldType.getMaxFieldID())
+            return;
+
+          // This subfield is interesting. Preserve it.
+          expandConnects(op, newField, target);
+        })
+        .Case<SubaccessOp>([&](auto op) {
+          // Subaccesses are weird because they can target any element of a
+          // vector. Thus we just assume that this also touches the target
+          // field.
+          expandConnects(op, FieldRef(op, 0), target);
         })
         .Case<ConnectOp, PartialConnectOp>([&](auto op) {
-          // TODO: Go through the pairs of connected fields and only consider
-          // the ones that actually match.
-          preserve(FieldRef(op.src(), 0));
+          if (op.dest() != subaccess)
+            return;
+          bool anyPreserved = false;
+          forEachConnectedField(within, FieldRef(op.src(), 0),
+                                [&](FieldRef lhs, FieldRef rhs, bool flipped) {
+                                  preserve(flipped ? lhs : rhs);
+                                  anyPreserved = true;
+                                });
+          if (anyPreserved)
+            preserve(op);
         });
   }
 }
