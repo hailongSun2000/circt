@@ -27,6 +27,7 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "mlir/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -35,6 +36,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
@@ -43,6 +45,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 
 namespace cl = llvm::cl;
+using llvm::SmallSet;
 using namespace mlir;
 using namespace circt;
 using namespace firrtl;
@@ -93,8 +96,10 @@ struct Marker {
       worklistOps.push_back(op);
   }
   void preserve(FieldRef field) {
-    if (preservedFields.insert(field).second)
+    if (preservedFields.insert(field).second) {
+      preservedFieldsByValue[field.getValue()].insert(field.getFieldID());
       worklistFields.push_back(field);
+    }
   }
 
   ModuleOp rootOp;
@@ -102,6 +107,9 @@ struct Marker {
   DenseSet<FieldRef> preservedFields;
   SmallVector<Operation *> worklistOps;
   SmallVector<FieldRef> worklistFields;
+
+  /// The set of preserved fields for each value.
+  DenseMap<Value, SmallSet<unsigned, 1>> preservedFieldsByValue;
 };
 } // namespace
 
@@ -424,6 +432,7 @@ static LogicalResult executeTool(ModuleOp module) {
   // Remove all operations in the module not marked as to be preserved.
   unsigned numberRemoved = 0;
   DenseMap<Identifier, unsigned> stats;
+  DenseSet<Value> possiblyUninitializedValues;
   module.walk<WalkOrder::PreOrder>([&](Operation *op) {
     if (!marker.preservedOps.contains(op)) {
       ++stats[op->getName().getIdentifier()];
@@ -432,8 +441,73 @@ static LogicalResult executeTool(ModuleOp module) {
       op->erase();
       return WalkResult::skip();
     }
+    if (isa<WireOp, RegOp, RegResetOp>(op))
+      for (const auto &result : op->getResults())
+        possiblyUninitializedValues.insert(result);
+    else if (auto moduleOp = dyn_cast<FModuleOp>(op))
+      for (const auto &arg : moduleOp.getArguments())
+        possiblyUninitializedValues.insert(arg);
     return WalkResult::advance();
   });
+
+  // For partially preserved bundles and vectors, stub out all the non-preserved
+  // fields.
+  for (auto value : possiblyUninitializedValues) {
+    const auto &preservedFields = marker.preservedFieldsByValue[value];
+
+    llvm::errs() << "\nChecking " << value << "\n";
+    for (const auto field : preservedFields) {
+      llvm::errs() << "- Preserve field " << field << "\n";
+    }
+
+    // Setup a builder that inserts after the operation that defines the current
+    // value, or at the end of the module if the value is a port.
+    ImplicitLocOpBuilder builder(value.getLoc(), module.getContext());
+    if (auto blockArg = value.dyn_cast<BlockArgument>())
+      builder.setInsertionPointToEnd(blockArg.getOwner());
+    else
+      builder.setInsertionPointAfter(value.getDefiningOp());
+
+    // Initialize each field as necessary.
+    SmallDenseMap<Type, Value> invalidValues;
+    llvm::function_ref<void(Value, unsigned, bool)> init =
+        [&](Value value, unsigned fieldID, bool flipped) {
+          auto type = value.getType().cast<FIRRTLType>();
+          if (auto bundle = type.dyn_cast<BundleType>()) {
+            for (unsigned i = 0, e = bundle.getNumElements(); i < e; ++i) {
+              auto subOp = builder.create<SubfieldOp>(value, i);
+              init(subOp, fieldID + bundle.getFieldID(i),
+                   flipped ^ bundle.getElement(i).isFlip);
+              if (subOp->use_empty())
+                subOp->erase();
+            }
+          } else if (auto vectorType = type.dyn_cast<FVectorType>()) {
+            for (unsigned i = 0, e = vectorType.getNumElements(); i < e; ++i) {
+              auto subOp = builder.create<SubindexOp>(value, i);
+              init(subOp, fieldID + vectorType.getFieldID(i), flipped);
+              if (subOp->use_empty())
+                subOp->erase();
+            }
+          } else if (type.isGround()) {
+            if (!flipped && !preservedFields.contains(fieldID)) {
+              auto &stub = invalidValues[value.getType()];
+              if (!stub) {
+                auto ip = builder.saveInsertionPoint();
+                builder.setInsertionPointToStart(builder.getInsertionBlock());
+                stub = builder.create<InvalidValueOp>(value.getType());
+                builder.restoreInsertionPoint(ip);
+              }
+              auto drive = builder.create<ConnectOp>(value, stub);
+              llvm::errs() << "Inserted " << drive << "\n";
+            }
+          } else {
+            llvm_unreachable("unknown type inside a bundle!");
+          }
+        };
+    init(value, 0, false);
+  }
+
+  // Print some statistics on the ops that were removed.
   SmallVector<std::pair<Identifier, unsigned>> statsSorted(stats.begin(),
                                                            stats.end());
   llvm::sort(statsSorted,
@@ -443,7 +517,8 @@ static LogicalResult executeTool(ModuleOp module) {
     llvm::errs() << "  " << pair.first << ": " << pair.second << "\n";
   }
 
-  return success();
+  // Verify that we didn't break the module.
+  return module.verify();
 }
 
 static LogicalResult executeTool(MLIRContext &context) {
