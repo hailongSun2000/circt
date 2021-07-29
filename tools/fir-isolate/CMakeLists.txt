@@ -7,17 +7,13 @@ add_llvm_tool(fir-isolate
 )
 llvm_update_compile_flags(fir-isolate)
 target_link_libraries(fir-isolate PRIVATE
-  CIRCTExportVerilog
   CIRCTImportFIRRTL
-  CIRCTFIRRTLToHW
-  CIRCTFIRRTLTransforms
-  CIRCTSVTransforms
+  CIRCTExportFIRRTL
 
   MLIRParser
   MLIRSupport
   MLIRIR
   MLIROptLib
   MLIRStandard
-  MLIRTransforms
   MLIRTranslation
 )

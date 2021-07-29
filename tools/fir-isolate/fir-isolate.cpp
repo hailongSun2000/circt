@@ -13,6 +13,7 @@
 
 #include "circt/Conversion/Passes.h"
 #include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/FIRRTL/FIREmitter.h"
 #include "circt/Dialect/FIRRTL/FIRParser.h"
 #include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
@@ -157,8 +158,7 @@ LogicalResult Marker::findAndMarkObject(StringRef path) {
     }
   } while (currentPath.consume_front("/"));
 
-  mlir::emitRemark(currentOp->getLoc(), "resolved `")
-      << path << "` to this operation";
+  mlir::emitRemark(currentOp->getLoc(), "resolved `") << path << "` here";
 
   // If the remaining path is empty, there are now field accesses to resolve.
   // Return immediately in this case.
@@ -445,8 +445,9 @@ static LogicalResult executeTool(ModuleOp module) {
       for (const auto &result : op->getResults())
         possiblyUninitializedValues.insert(result);
     else if (auto moduleOp = dyn_cast<FModuleOp>(op))
-      for (const auto &arg : moduleOp.getArguments())
-        possiblyUninitializedValues.insert(arg);
+      for (unsigned i = 0, e = moduleOp.getNumArguments(); i < e; ++i)
+        if (getModulePortDirection(moduleOp, i) == Direction::Output)
+          possiblyUninitializedValues.insert(moduleOp.getArgument(i));
     return WalkResult::advance();
   });
 
@@ -454,11 +455,6 @@ static LogicalResult executeTool(ModuleOp module) {
   // fields.
   for (auto value : possiblyUninitializedValues) {
     const auto &preservedFields = marker.preservedFieldsByValue[value];
-
-    llvm::errs() << "\nChecking " << value << "\n";
-    for (const auto field : preservedFields) {
-      llvm::errs() << "- Preserve field " << field << "\n";
-    }
 
     // Setup a builder that inserts after the operation that defines the current
     // value, or at the end of the module if the value is a port.
@@ -497,8 +493,7 @@ static LogicalResult executeTool(ModuleOp module) {
                 stub = builder.create<InvalidValueOp>(value.getType());
                 builder.restoreInsertionPoint(ip);
               }
-              auto drive = builder.create<ConnectOp>(value, stub);
-              llvm::errs() << "Inserted " << drive << "\n";
+              builder.create<ConnectOp>(value, stub);
             }
           } else {
             llvm_unreachable("unknown type inside a bundle!");
@@ -562,8 +557,7 @@ static LogicalResult executeTool(MLIRContext &context) {
   }
 
   // Register our dialects.
-  context.loadDialect<firrtl::FIRRTLDialect, hw::HWDialect, comb::CombDialect,
-                      sv::SVDialect>();
+  context.loadDialect<firrtl::FIRRTLDialect>();
 
   // Move the input into the source manager.
   llvm::SourceMgr sourceMgr;
@@ -593,7 +587,8 @@ static LogicalResult executeTool(MLIRContext &context) {
     module->print(output->os());
     break;
   case FormatKind::FIR:
-    llvm_unreachable("FIR output not implemented yet");
+    if (failed(exportFIRRTL(module.get(), output->os())))
+      return failure();
     break;
   case FormatKind::Unspecified:
     llvm_unreachable("handled above");
@@ -617,7 +612,6 @@ int main(int argc, char **argv) {
   registerPassManagerCLOptions();
   registerDefaultTimingManagerCLOptions();
   registerAsmPrinterCLOptions();
-  registerLoweringCLOptions();
   cl::ParseCommandLineOptions(argc, argv, "FIR fan-in/out isolator\n");
 
   // Execute and then exit immediately to don't run the slow MLIRContext
