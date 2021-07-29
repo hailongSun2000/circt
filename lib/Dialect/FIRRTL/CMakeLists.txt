@@ -25,5 +25,6 @@ add_dependencies(circt-headers
   CIRCTFIRRTLCanonicalizationIncGen
   )
 
+add_subdirectory(Export)
 add_subdirectory(Import)
 add_subdirectory(Transforms)
