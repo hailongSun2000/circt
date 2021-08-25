@@ -37,7 +37,12 @@ static ParseResult parseFIRRTLType(FIRRTLType &result,
 // Type Printing
 //===----------------------------------------------------------------------===//
 
-void FIRRTLType::print(raw_ostream &os) const {
+void FIRRTLType::print(DialectAsmPrinter &os) const {
+  // Try to use one of the generated printers first.
+  if (succeeded(generatedTypePrinter(*this, os)))
+    return;
+
+  // Resort to custom printing.
   auto printWidthQualifier = [&](Optional<int32_t> width) {
     if (width)
       os << '<' << width.getValue() << '>';
@@ -97,9 +102,17 @@ void FIRRTLType::print(raw_ostream &os) const {
 ///
 static ParseResult parseFIRRTLType(FIRRTLType &result, StringRef name,
                                    DialectAsmParser &parser) {
-
   auto *context = parser.getBuilder().getContext();
 
+  // Try to parse a generated type first.
+  Type genType;
+  auto parseResult = generatedTypeParser(context, parser, name, genType);
+  if (parseResult.hasValue())
+    return result =
+               genType ? genType.dyn_cast_or_null<FIRRTLType>() : FIRRTLType(),
+           success();
+
+  // Resort to manual parser implementations.
   if (name.equals("clock")) {
     return result = ClockType::get(context), success();
   } else if (name.equals("reset")) {
@@ -196,26 +209,14 @@ static ParseResult parseFIRRTLType(FIRRTLType &result,
 /// Parse a type registered to this dialect.
 Type FIRRTLDialect::parseType(DialectAsmParser &parser) const {
   llvm::StringRef name;
-  if (parser.parseKeyword(&name))
-    return Type();
-
-  // Parse a generated type.
-  Type genType;
-  auto parseResult = generatedTypeParser(getContext(), parser, name, genType);
-  if (parseResult.hasValue())
-    return genType;
-
-  // Parse a FIRRTLType.
   FIRRTLType result;
-  if (parseFIRRTLType(result, name, parser))
+  if (parser.parseKeyword(&name) || parseFIRRTLType(result, name, parser))
     return Type();
   return result;
 }
 
 void FIRRTLDialect::printType(Type type, DialectAsmPrinter &os) const {
-  if (succeeded(generatedTypePrinter(type, os)))
-    return;
-  type.cast<FIRRTLType>().print(os.getStream());
+  type.cast<FIRRTLType>().print(os);
 }
 
 //===----------------------------------------------------------------------===//
@@ -869,7 +870,7 @@ std::pair<unsigned, bool> FVectorType::rootChildFieldID(unsigned fieldID,
 void CMemoryType::print(mlir::DialectAsmPrinter &printer) const {
   printer << "cmemory<";
   // Don't print element types with "!firrtl.".
-  getElementType().print(printer.getStream());
+  getElementType().print(printer);
   printer << ", " << getNumElements() << ">";
 }
 
