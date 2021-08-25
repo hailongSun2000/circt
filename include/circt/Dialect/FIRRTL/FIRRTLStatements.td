@@ -184,3 +184,66 @@ def WhenOp : FIRRTLOp<"when", [SingleBlock, NoTerminator, NoRegionArguments,
     }
   }];
 }
+
+//===----------------------------------------------------------------------===//
+// Cross-Module References
+//===----------------------------------------------------------------------===//
+
+def XmrSourceOp : FIRRTLOp<"xmr.source", [XmrTypeConstraint<"src", "dest">]> {
+  // TODO: Constrain `src` to be a wire/reg/port.
+  let summary = "Mark a declaration as the source of an XMR";
+  let description = [{
+    The `firrtl.xmr.source` operation is used to mark a declaration as the
+    source of a cross-module reference. This allows a remote part of the circuit
+    to read the declaration's value. For example:
+    ```
+    firrtl.module @Foo(out %xmr: !firrtl.xmr<uint<42>>) {
+      %myWire = firrtl.wire : !firrtl.uint<42>
+      firrtl.xmr.source %xmr, %myWire : !firrtl.uint<42>
+    }
+    ```
+    }];
+
+  let arguments = (ins FIRRTLType:$dest, FIRRTLType:$src);
+  let results = (outs);
+
+  let assemblyFormat = "$dest `,` $src attr-dict `:` type($src)";
+}
+
+def XmrAttachOp : FIRRTLOp<"xmr.attach", [SameTypeOperands]> {
+  let summary = "Connect two XMRs";
+  let description = [{
+    The `firrtl.xmr.attach` operation is used to connect the XMR port of a
+    moduel to an XMR port of an instance within that module. For example:
+    ```
+    firrtl.module @Foo(out %xmr: !firrtl.xmr<uint<42>>) {
+      %inst_xmr = firrtl.instance ... : !firrtl.xmr<uint<42>>
+      firrtl.xmr.attach %xmr, %inst_xmr : !firrtl.xmr<uint<42>>
+    }
+    ```
+    }];
+
+  let arguments = (ins XmrType:$dest, XmrType:$src);
+  let results = (outs);
+
+  let assemblyFormat = "$dest `,` $src attr-dict `:` type($src)";
+}
+
+def XmrDerefOp : FIRRTLOp<"xmr.deref", [XmrTypeConstraint<"result", "src">]> {
+  let summary = "Dereference an XMR to a value with wire semantics";
+  let description = [{
+    The `firrtl.xmr.deref` operation is used to map a cross-module reference
+    back to a value in the IR that has wire semantics, and as such can be read
+    from or connected to.
+    ```
+    firrtl.module @Foo(in %xmr: !firrtl.xmr<uint<42>>) {
+      %myWire = firrtl.xmr.deref %xmr : !firrtl.uint<42>
+    }
+    ```
+    }];
+
+  let arguments = (ins FIRRTLType:$src);
+  let results = (outs FIRRTLType:$result);
+
+  let assemblyFormat = "$src attr-dict `:` type($result)";
+}

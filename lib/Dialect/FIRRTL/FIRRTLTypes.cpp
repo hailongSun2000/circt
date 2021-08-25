@@ -262,7 +262,7 @@ bool FIRRTLType::isGround() {
   return TypeSwitch<FIRRTLType, bool>(*this)
       .Case<ClockType, ResetType, AsyncResetType, SIntType, UIntType,
             AnalogType>([](Type) { return true; })
-      .Case<BundleType, FVectorType>([](Type) { return false; })
+      .Case<BundleType, FVectorType, XmrType>([](Type) { return false; })
       .Default([](Type) {
         llvm_unreachable("unknown FIRRTL type");
         return false;
@@ -281,12 +281,8 @@ RecursiveTypeProperties FIRRTLType::getRecursiveTypeProperties() {
       .Case<AnalogType>([](auto type) {
         return RecursiveTypeProperties{true, true, !type.hasWidth()};
       })
-      .Case<BundleType>([](BundleType bundleType) {
-        return bundleType.getRecursiveTypeProperties();
-      })
-      .Case<FVectorType>([](FVectorType vectorType) {
-        return vectorType.getRecursiveTypeProperties();
-      })
+      .Case<BundleType, FVectorType, XmrType>(
+          [](auto type) { return type.getRecursiveTypeProperties(); })
       .Default([](Type) {
         llvm_unreachable("unknown FIRRTL type");
         return RecursiveTypeProperties{};
@@ -297,11 +293,9 @@ RecursiveTypeProperties FIRRTLType::getRecursiveTypeProperties() {
 FIRRTLType FIRRTLType::getPassiveType() {
   return TypeSwitch<FIRRTLType, FIRRTLType>(*this)
       .Case<ClockType, ResetType, AsyncResetType, SIntType, UIntType,
-            AnalogType>([&](Type) { return *this; })
-      .Case<BundleType>(
-          [](BundleType bundleType) { return bundleType.getPassiveType(); })
-      .Case<FVectorType>(
-          [](FVectorType vectorType) { return vectorType.getPassiveType(); })
+            AnalogType, XmrType>([&](Type) { return *this; })
+      .Case<BundleType, FVectorType, XmrType>(
+          [](auto type) { return type.getPassiveType(); })
       .Default([](Type) {
         llvm_unreachable("unknown FIRRTL type");
         return FIRRTLType();
@@ -326,6 +320,9 @@ FIRRTLType FIRRTLType::getMaskType() {
       .Case<FVectorType>([](FVectorType vectorType) {
         return FVectorType::get(vectorType.getElementType().getMaskType(),
                                 vectorType.getNumElements());
+      })
+      .Case<XmrType>([](auto type) {
+        return XmrType::get(type.getInnerType().getMaskType());
       })
       .Default([](Type) {
         llvm_unreachable("unknown FIRRTL type");
@@ -352,6 +349,9 @@ FIRRTLType FIRRTLType::getWidthlessType() {
         return FVectorType::get(a.getElementType().getWidthlessType(),
                                 a.getNumElements());
       })
+      .Case<XmrType>([](auto type) {
+        return XmrType::get(type.getInnerType().getWidthlessType());
+      })
       .Default([](auto) {
         llvm_unreachable("unknown FIRRTL type");
         return FIRRTLType();
@@ -369,7 +369,7 @@ int32_t FIRRTLType::getBitWidthOrSentinel() {
           [&](IntType intType) { return intType.getWidthOrSentinel(); })
       .Case<AnalogType>(
           [](AnalogType analogType) { return analogType.getWidthOrSentinel(); })
-      .Case<BundleType, FVectorType>([](Type) { return -2; })
+      .Case<BundleType, FVectorType, XmrType>([](Type) { return -2; })
       .Default([](Type) {
         llvm_unreachable("unknown FIRRTL type");
         return -2;
@@ -393,6 +393,8 @@ unsigned FIRRTLType::getMaxFieldID() {
             UIntType>([](Type) { return 0; })
       .Case<BundleType, FVectorType>(
           [](auto type) { return type.getMaxFieldID(); })
+      .Case<XmrType>(
+          [](auto type) { return type.getInnerType().getMaxFieldID(); })
       .Default([](Type) {
         llvm_unreachable("unknown FIRRTL type");
         return -1;
@@ -406,6 +408,9 @@ std::pair<unsigned, bool> FIRRTLType::rootChildFieldID(unsigned fieldID,
             UIntType>([&](Type) { return std::make_pair(0, fieldID == 0); })
       .Case<BundleType, FVectorType>(
           [&](auto type) { return type.rootChildFieldID(fieldID, index); })
+      .Case<XmrType>([&](auto type) {
+        return type.getInnerType().rootChildFieldID(fieldID, index);
+      })
       .Default([](Type) {
         llvm_unreachable("unknown FIRRTL type");
         return std::make_pair(0, false);
@@ -894,13 +899,31 @@ LogicalResult CMemoryType::verify(function_ref<InFlightDiagnostic()> emitError,
 }
 
 //===----------------------------------------------------------------------===//
+// Xmr Type
+//===----------------------------------------------------------------------===//
+
+void XmrType::print(mlir::DialectAsmPrinter &printer) const {
+  printer << "xmr<";
+  getInnerType().print(printer);
+  printer << ">";
+}
+
+Type XmrType::parse(MLIRContext *context, DialectAsmParser &parser) {
+  FIRRTLType innerType;
+  if (parser.parseLess() || parseFIRRTLType(innerType, parser) ||
+      parser.parseGreater())
+    return {};
+  return XmrType::get(innerType);
+}
+
+//===----------------------------------------------------------------------===//
 // FIRRTLDialect
 //===----------------------------------------------------------------------===//
 
 void FIRRTLDialect::registerTypes() {
   addTypes<SIntType, UIntType, ClockType, ResetType, AsyncResetType, AnalogType,
            // Derived Types
-           BundleType, FVectorType,
+           BundleType, FVectorType, XmrType,
            // CHIRRTL Types
            CMemoryType, CMemoryPortType>();
 }

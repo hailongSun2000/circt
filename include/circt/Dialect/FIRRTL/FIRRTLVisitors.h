@@ -44,6 +44,7 @@ public:
             // Miscellaneous.
             BitsPrimOp, HeadPrimOp, MuxPrimOp, PadPrimOp, ShlPrimOp, ShrPrimOp,
             TailPrimOp, VerbatimExprOp, AsPassivePrimOp, AsNonPassivePrimOp,
+            XmrDerefOp,
 
             // Conversion from FIRRTL to HW dialect types.
             StdIntCastOp, HWStructCastOp, AnalogInOutCastOp>(
@@ -140,6 +141,7 @@ public:
   HANDLE(VerbatimExprOp, Unhandled);
   HANDLE(AsPassivePrimOp, Unhandled);
   HANDLE(AsNonPassivePrimOp, Unhandled);
+  HANDLE(XmrDerefOp, Unhandled);
 
   // Conversion from FIRRTL to HW dialect types.
   HANDLE(StdIntCastOp, Unhandled);
@@ -158,7 +160,7 @@ public:
     return TypeSwitch<Operation *, ResultType>(op)
         .template Case<AttachOp, ConnectOp, MemoryPortOp, MemoryPortAccessOp,
                        PartialConnectOp, PrintFOp, SkipOp, StopOp, WhenOp,
-                       AssertOp, AssumeOp, CoverOp>(
+                       AssertOp, AssumeOp, CoverOp, XmrSourceOp, XmrAttachOp>(
             [&](auto opNode) -> ResultType {
               return thisCast->visitStmt(opNode, args...);
             })
@@ -196,6 +198,8 @@ public:
   HANDLE(AssertOp);
   HANDLE(AssumeOp);
   HANDLE(CoverOp);
+  HANDLE(XmrSourceOp);
+  HANDLE(XmrAttachOp);
 #undef HANDLE
 };
 

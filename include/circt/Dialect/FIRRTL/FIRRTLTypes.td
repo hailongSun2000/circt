@@ -104,6 +104,44 @@ def CMemoryPortType : TypeDef<FIRRTLDialect, "CMemoryPort"> {
 }
 
 //===----------------------------------------------------------------------===//
+// Cross-Module Reference Type
+//===----------------------------------------------------------------------===//
+
+def XmrType : TypeDef<FIRRTLDialect, "Xmr", [], "FIRRTLType"> {
+  let mnemonic = "xmr";
+  let summary = "a cross-module reference";
+  let description = [{
+    A wrapper type for cross-module references. Generally ports of this type
+    will not be emitted as ports in the output, but rather as cross-module
+    references. The `xmr` type allows such references to be represented as local
+    constructs in the IR, and to be plumbed through the module hierarchy without
+    affecting the output.
+  }];
+  let parameters = (ins "FIRRTLType":$innerType);
+  let builders = [
+    TypeBuilderWithInferredContext<(ins "FIRRTLType":$innerType), [{
+      return $_get(innerType.getContext(), innerType);
+    }]>
+  ];
+  let extraClassDeclaration = [{
+    FIRRTLType getPassiveType() {
+      return get(getInnerType().getPassiveType());
+    }
+    RecursiveTypeProperties getRecursiveTypeProperties() {
+      return getInnerType().getRecursiveTypeProperties();
+    }
+  }];
+}
+
+/// This type constraint is used by operations that have operands of type `T`
+/// (the `value` side) and `!firrtl.xmr<T>` (the `xmrValue` side), to ensure the
+/// the type of the `value` wrapped in an `XmrType` corresponds to the type of
+/// `xmrValue`.
+class XmrTypeConstraint<string value, string xmrValue>
+  : TypesMatchWith<"type should be element of XMR type", value, xmrValue,
+                   "XmrType::get($_self.cast<FIRRTLType>())">;
+
+//===----------------------------------------------------------------------===//
 // FIRRTL Types Predicates
 //===----------------------------------------------------------------------===//
 

@@ -213,6 +213,19 @@ namespace {
 
 struct FIRRTLModuleLowering;
 
+/// A single element in a cross-module reference chain.
+///
+/// The node's `text` forms the "head" of the XMR, with the tail op and argument
+/// index indicating the remainder of the XMR, to be concatenated to the head.
+struct XmrNode {
+  /// The "head" path element of this XMR.
+  SmallString<16> text;
+  /// The operation and optional port/argument index that represents the
+  /// remainder of the XMR.
+  Operation *tailOp = nullptr;
+  unsigned tailArgIdx = 0;
+};
+
 /// This is state shared across the parallel module lowering logic.
 struct CircuitLoweringState {
   std::atomic<bool> used_PRINTF_COND{false};
@@ -243,6 +256,20 @@ struct CircuitLoweringState {
     binds.push_back(op);
   }
 
+  /// Safely record an assignment of a module XMR port to one of its internal
+  /// declarations. This will acquire a lock to do this safely.
+  void addXmr(Operation *op, unsigned argIdx, XmrNode node) {
+    std::lock_guard<std::mutex> lock(xmrsMutex);
+    xmrs.insert({{op, argIdx}, std::move(node)});
+  }
+
+  /// Safely record a use of one of a module's XMR ports. This will acquire a
+  /// lock to do this safely.
+  void addXmrUse(Operation *op, unsigned argIdx, sv::VerbatimExprOp xmrOp) {
+    std::lock_guard<std::mutex> lock(xmrsMutex);
+    xmrUses.push_back({op, argIdx, xmrOp});
+  }
+
 private:
   friend struct FIRRTLModuleLowering;
   CircuitLoweringState(const CircuitLoweringState &) = delete;
@@ -266,6 +293,19 @@ private:
 
   // Control access to binds.
   std::mutex bindsMutex;
+
+  /// Records any values associated with module XMR ports found during the
+  /// course of execution. This allows instances of a module to resolve its XMR
+  /// ports to the actual XMR text in a post-pass.
+  DenseMap<std::pair<Operation *, unsigned>, XmrNode> xmrs;
+
+  /// Records any uses of a module's XMR ports found during the course of
+  /// execution. This allows a post-pass to go in and fixup all verbatim XMR ops
+  /// once the exact XMR of the instantiated modules is known.
+  SmallVector<std::tuple<Operation *, unsigned, sv::VerbatimExprOp>> xmrUses;
+
+  /// Protects `xmrs` and `xmrUses`.
+  std::mutex xmrsMutex;
 };
 
 void CircuitLoweringState::processRemainingAnnotations(
@@ -331,6 +371,8 @@ private:
 
   void lowerMemoryDecls(const SmallVector<FirMemory> &mems, Block *top,
                         CircuitLoweringState &loweringState);
+
+  void finalizeXMRs(CircuitLoweringState &loweringState);
 };
 
 } // end anonymous namespace
@@ -423,6 +465,9 @@ void FIRRTLModuleLowering::runOnOperation() {
   for (auto bind : state.binds) {
     bind->moveBefore(bind->getParentOfType<hw::HWModuleOp>());
   }
+
+  // Fixup cross-module references with the final hierarchy.
+  finalizeXMRs(state);
 
   // Move any pass through ops into the top of the new module.
   for (auto *passThrough : state.passThroughOps)
@@ -654,6 +699,14 @@ FIRRTLModuleLowering::lowerPorts(ArrayRef<ModulePortInfo> firrtlPorts,
     hwPort.name = firrtlPort.name;
     hwPort.type = lowerType(firrtlPort.type);
 
+    // If this is a cross-module reference, just drop it. These are in the
+    // FIRRTL dialect to make it easy to reason locally about XMRs and plumb
+    // them through the IR. We represent them directly as XMRs in HW.
+    // TODO: Once HW/SV gains an XMR construct, we'll want to translate to that
+    // here.
+    if (firrtlPort.type.isa<XmrType>())
+      continue;
+
     // We can't lower all types, so make sure to cleanly reject them.
     if (!hwPort.type) {
       moduleOp->emitError("cannot lower this port type to HW");
@@ -883,6 +936,18 @@ void FIRRTLModuleLowering::lowerModuleBody(
     // Inputs and outputs are both modeled as arguments in the FIRRTL level.
     auto oldArg = oldModule.body().getArgument(firrtlArg++);
 
+    // Drop XMR ports, which are merely used to make XMRs local. Take note of
+    // how that XMR is used within the module.
+    if (port.type.isa<XmrType>()) {
+      for (auto &use : llvm::make_early_inc_range(oldArg.getUses())) {
+        auto op = use.getOwner();
+        if (isa<XmrSourceOp>(op)) {
+          // op->erase();
+        }
+      }
+      continue;
+    }
+
     bool isZeroWidth =
         port.type.cast<FIRRTLType>().getBitWidthOrSentinel() == 0;
 
@@ -945,6 +1010,38 @@ void FIRRTLModuleLowering::lowerModuleBody(
 
   // Lower all of the other operations.
   lowerModuleOperations(newModule, loweringState);
+}
+
+void FIRRTLModuleLowering::finalizeXMRs(CircuitLoweringState &loweringState) {
+  std::lock_guard<std::mutex> lock(loweringState.xmrsMutex);
+  auto *context = loweringState.circuitOp.getContext();
+
+  // A local cache of resolved XMRs. Calling `resolve` on a operation/argIdx
+  // combination that was previously registered through `addXmr` will return a
+  // serialized form of that XMR by recursively calling `resolve`.
+  DenseMap<std::pair<Operation *, unsigned>, StringAttr> cachedXMRs;
+  llvm::function_ref<StringAttr(Operation *, unsigned)> resolve =
+      [&](Operation *op, unsigned argIdx) {
+        if (auto attr = cachedXMRs.lookup({op, argIdx}))
+          return attr;
+
+        const XmrNode &node = loweringState.xmrs.lookup({op, argIdx});
+        SmallString<32> str(node.text);
+        if (node.tailOp) {
+          if (!str.empty())
+            str.append(".");
+          str.append(resolve(node.tailOp, node.tailArgIdx).getValue());
+        }
+        auto attr = StringAttr::get(context, str);
+        cachedXMRs.insert({{op, argIdx}, attr});
+        return attr;
+      };
+
+  // Update each XMR use in the IR.
+  for (auto &use : loweringState.xmrUses) {
+    sv::VerbatimExprOp &op = std::get<2>(use);
+    op.stringAttr(resolve(std::get<0>(use), std::get<1>(use)));
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1141,6 +1238,11 @@ struct FIRRTLLowering : public FIRRTLVisitor<FIRRTLLowering, LogicalResult> {
   LogicalResult visitStmt(AssumeOp op);
   LogicalResult visitStmt(CoverOp op);
   LogicalResult visitStmt(AttachOp op);
+
+  // XMRs
+  LogicalResult visitExpr(XmrDerefOp op);
+  LogicalResult visitStmt(XmrSourceOp op);
+  LogicalResult visitStmt(XmrAttachOp op);
 
 private:
   /// The module we're lowering into.
@@ -2060,6 +2162,15 @@ LogicalResult FIRRTLLowering::visitDecl(InstanceOp oldInstance) {
   SmallVector<Value, 8> operands;
   for (size_t portIndex = 0, e = portInfo.size(); portIndex != e; ++portIndex) {
     auto &port = portInfo[portIndex];
+
+    // Drop XMR ports.
+    if (port.type.isa<XmrType>()) {
+      circuitState.addXmr(oldInstance, portIndex,
+                          XmrNode{oldInstance.name(), oldModule,
+                                  static_cast<unsigned>(portIndex)});
+      continue;
+    }
+
     auto portType = lowerType(port.type);
     if (!portType) {
       oldInstance->emitOpError("could not lower type of port ") << port.name;
@@ -2134,11 +2245,19 @@ LogicalResult FIRRTLLowering::visitDecl(InstanceOp oldInstance) {
     if (!port.isOutput() || isZeroBitFIRRTLType(port.type))
       continue;
 
-    Value resultVal = newInstance.getResult(resultNo);
+    Value resultVal;
+    if (auto type = port.type.dyn_cast<XmrType>()) {
+      // auto innerType = hw::InOutType::get(lowerType(type.getInnerType()));
+      auto innerType = lowerType(type.getInnerType());
+      auto op = builder.create<sv::VerbatimExprOp>(innerType, "");
+      circuitState.addXmrUse(oldInstance, portIndex, op);
+      resultVal = op;
+    } else {
+      resultVal = newInstance.getResult(resultNo++);
+    }
 
     auto oldPortResult = oldInstance.getResult(portIndex);
     (void)setLowering(oldPortResult, resultVal);
-    ++resultNo;
   }
   return success();
 }
@@ -2854,4 +2973,33 @@ LogicalResult FIRRTLLowering::visitStmt(AttachOp op) {
       });
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Cross-Module References
+//===----------------------------------------------------------------------===//
+
+LogicalResult FIRRTLLowering::visitStmt(XmrSourceOp op) {
+  auto blockArg = op.dest().cast<BlockArgument>();
+  circuitState.addXmr(blockArg.getOwner()->getParentOp(),
+                      blockArg.getArgNumber(),
+                      XmrNode{op.src()
+                                  .getDefiningOp()
+                                  ->getAttrOfType<StringAttr>("name")
+                                  .getValue(),
+                              nullptr, 0});
+  return success();
+}
+
+LogicalResult FIRRTLLowering::visitStmt(XmrAttachOp op) {
+  auto blockArg = op.dest().cast<BlockArgument>();
+  auto src = op.src().cast<OpResult>();
+  circuitState.addXmr(blockArg.getOwner()->getParentOp(),
+                      blockArg.getArgNumber(),
+                      XmrNode{{}, src.getOwner(), src.getResultNumber()});
+  return success();
+}
+
+LogicalResult FIRRTLLowering::visitExpr(XmrDerefOp op) {
+  return setLowering(op, getLoweredValue(op.src()));
 }
