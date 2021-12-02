@@ -1,0 +1,33 @@
+set(LLVM_LINK_COMPONENTS
+  Support
+)
+
+add_llvm_tool(circt-vcd-testbench
+ circt-vcd-testbench.cpp
+ VCDParser.cpp
+)
+llvm_update_compile_flags(circt-vcd-testbench)
+target_link_libraries(circt-vcd-testbench
+  PRIVATE
+  CIRCTCalyx
+  CIRCTESI
+  CIRCTFIRRTL
+  CIRCTFIRRTLTransforms
+  CIRCTFSM
+  CIRCTHandshake
+  CIRCTLLHD
+  CIRCTMoore
+  CIRCTMSFT
+  CIRCTHW
+  CIRCTScheduling
+  CIRCTSeq
+  CIRCTStaticLogicOps
+  CIRCTSV
+
+  MLIRIR
+  MLIRParser
+  MLIRStandard
+  MLIRSupport
+  MLIRTransforms
+  MLIRReduceLib
+)
