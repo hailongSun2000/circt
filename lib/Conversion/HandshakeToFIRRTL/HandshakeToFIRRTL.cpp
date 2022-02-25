@@ -85,8 +85,9 @@ static FIRRTLType portInfosToBundleType(MLIRContext *ctx,
   using BundleElement = BundleType::BundleElement;
   llvm::SmallVector<BundleElement, 4> elements;
   for (auto &port : ports) {
-    elements.push_back(
-        BundleElement(port.name, port.direction == Direction::Out, port.type));
+    elements.push_back(BundleElement(port.name,
+                                     port.direction == Direction::Out,
+                                     port.type.cast<FIRRTLType>()));
   }
   return BundleType::get(elements, ctx);
 }

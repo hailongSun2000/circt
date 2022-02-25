@@ -1668,4 +1668,36 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
   firrtl.module private @eliminateSingleOutputConnects(in %a: !firrtl.uint<1>, out %b: !firrtl.uint<1>) {
     firrtl.strictconnect %b, %a : !firrtl.uint<1>
   }
+
+  // CHECK-LABEL: hw.module @passThroughForeignTypes
+  // CHECK-SAME:      (%inOpaque: index) -> (outOpaque: index) {
+  // CHECK-NEXT:    %sub2.bar = hw.instance "sub2" @moreForeignTypes(foo: %sub1.bar: index) -> (bar: index)
+  // CHECK-NEXT:    %sub1.bar = hw.instance "sub1" @moreForeignTypes(foo: %inOpaque: index) -> (bar: index)
+  // CHECK-NEXT:    hw.output %sub2.bar : index
+  // CHECK-NEXT:  }
+  // CHECK-LABEL: hw.module @moreForeignTypes
+  // CHECK-SAME:      (%foo: index) -> (bar: index) {
+  // CHECK-NEXT:    hw.output %foo : index
+  // CHECK-NEXT:  }
+  firrtl.module @passThroughForeignTypes(in %inOpaque: index, out %outOpaque: index) {
+    // Declaration order intentionally reversed to enforce use-before-def in HW
+    %sub2_foo, %sub2_bar = firrtl.instance sub2 @moreForeignTypes(in foo: index, out bar: index)
+    %sub1_foo, %sub1_bar = firrtl.instance sub1 @moreForeignTypes(in foo: index, out bar: index)
+    firrtl.strictconnect %sub1_foo, %inOpaque : index
+    firrtl.strictconnect %sub2_foo, %sub1_bar : index
+    firrtl.strictconnect %outOpaque, %sub2_bar : index
+  }
+  firrtl.module @moreForeignTypes(in %foo: index, out %bar: index) {
+    firrtl.strictconnect %bar, %foo : index
+  }
+
+  // CHECK-LABEL: hw.module @foreignOpsOnForeignTypes
+  // CHECK-SAME:      (%x: f32) -> (y: f32) {
+  // CHECK-NEXT:    [[TMP:%.+]] = arith.addf %x, %x : f32
+  // CHECK-NEXT:    hw.output [[TMP]] : f32
+  // CHECK-NEXT:  }
+  firrtl.module @foreignOpsOnForeignTypes(in %x: f32, out %y: f32) {
+    %0 = arith.addf %x, %x : f32
+    firrtl.strictconnect %y, %0 : f32
+  }
 }

@@ -53,13 +53,6 @@ firrtl.circuit "" {
 // -----
 
 firrtl.circuit "foo" {
-// expected-error @+1 {{ports should all be FIRRTL types}}
-firrtl.module @foo(in %a: i1) {}
-}
-
-// -----
-
-firrtl.circuit "foo" {
 // expected-error @+1 {{requires 1 port directions}}
 firrtl.module @foo(in %a : !firrtl.uint<1>) attributes {portDirections = 3 : i2} {}
 }

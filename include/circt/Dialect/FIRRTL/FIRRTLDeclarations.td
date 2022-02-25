@@ -34,7 +34,7 @@ def InstanceOp : FIRRTLOp<"instance", [HasParent<"firrtl::FModuleOp, firrtl::Whe
                        BoolAttr:$lowerToBind,
                        OptionalAttr<SymbolNameAttr>:$inner_sym);
 
-  let results = (outs Variadic<FIRRTLType>:$results);
+  let results = (outs Variadic<AnyType>:$results);
 
   let hasCustomAssemblyFormat = 1;
 

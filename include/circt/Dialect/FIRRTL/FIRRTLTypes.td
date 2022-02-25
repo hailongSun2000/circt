@@ -17,6 +17,9 @@
 def FIRRTLType : DialectType<FIRRTLDialect, CPred<"$_self.isa<FIRRTLType>()">,
   "FIRRTLType", "::circt::firrtl::FIRRTLType">;
 
+def ForeignType : DialectType<FIRRTLDialect, CPred<"!$_self.isa<FIRRTLType>()">,
+  "foreign type", "::mlir::Type">;
+
 def ClockType : DialectType<FIRRTLDialect, CPred<"$_self.isa<ClockType>()">,
     "clock", "::circt::firrtl::ClockType">,
   BuildableType<"ClockType::get($_builder.getContext())">;
@@ -43,6 +46,8 @@ def SizedType : DialectType<FIRRTLDialect,
     CPred<"$_self.isa<FIRRTLType>() && "
           "!$_self.cast<FIRRTLType>().hasUninferredWidth()">,
     "a sized type (contains no unifered widths)", "::circt::firrtl::FIRRTLType">;
+
+def SizedOrForeignType : AnyTypeOf<[SizedType, ForeignType]>;
 
 def UInt1Type : DialectType<FIRRTLDialect,
     CPred<"$_self.isa<UIntType>() && "

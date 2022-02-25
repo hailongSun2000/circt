@@ -68,7 +68,7 @@ def StrictConnectOp : FIRRTLOp<"strictconnect", [SameTypeOperands, FConnectLike]
     ```
     }];
 
-  let arguments = (ins SizedType:$dest, SizedType:$src);
+  let arguments = (ins SizedOrForeignType:$dest, SizedOrForeignType:$src);
   let results = (outs);
   let hasCanonicalizeMethod = true;
 

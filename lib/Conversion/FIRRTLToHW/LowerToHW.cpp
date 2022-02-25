@@ -65,9 +65,10 @@ static const char metadataDirectoryAttrName[] =
 /// Given a FIRRTL type, return the corresponding type for the HW dialect.
 /// This returns a null type if it cannot be lowered.
 static Type lowerType(Type type) {
+  // Pass-through foreign types.
   auto firType = type.dyn_cast<FIRRTLType>();
   if (!firType)
-    return {};
+    return type;
 
   // Ignore flip types.
   firType = firType.getPassiveType();
@@ -144,7 +145,10 @@ static IntType getWidestIntType(Type t1, Type t2) {
 /// Cast from a standard type to a FIRRTL type, potentially with a flip.
 static Value castToFIRRTLType(Value val, Type type,
                               ImplicitLocOpBuilder &builder) {
-  auto firType = type.cast<FIRRTLType>();
+  // Passthrough foreign types.
+  auto firType = type.dyn_cast<FIRRTLType>();
+  if (!firType)
+    return val;
 
   // Use HWStructCastOp for a bundle type.
   if (BundleType bundle = type.dyn_cast<BundleType>())
@@ -180,7 +184,8 @@ static Value castFromFIRRTLType(Value val, Type type,
 /// Return true if the specified FIRRTL type is a sized type (Int or Analog)
 /// with zero bits.
 static bool isZeroBitFIRRTLType(Type type) {
-  return type.cast<FIRRTLType>().getPassiveType().getBitWidthOrSentinel() == 0;
+  auto ftype = type.dyn_cast<FIRRTLType>();
+  return ftype && ftype.getPassiveType().getBitWidthOrSentinel() == 0;
 }
 
 /// Move a ExtractTestCode related annotation from annotations to an attribute.
@@ -1141,6 +1146,15 @@ static Value tryEliminatingConnectsToValue(Value flipValue,
 
   auto connectSrc = connectOp->getOperand(1);
 
+  // Directly forward foreign types. The only FIRRTL operation that can define
+  // such values is `InstanceOp`, which performs special handling of foreign
+  // types by directly replacing uses with the lowered value instead of relying
+  // on `setLowering`.
+  if (!connectSrc.getType().isa<FIRRTLType>()) {
+    connectOp->erase();
+    return connectSrc;
+  }
+
   // Convert fliped sources to passive sources.
   if (!connectSrc.getType().cast<FIRRTLType>().isPassive())
     connectSrc =
@@ -1228,8 +1242,8 @@ FIRRTLModuleLowering::lowerModuleBody(FModuleOp oldModule,
     // Inputs and outputs are both modeled as arguments in the FIRRTL level.
     auto oldArg = oldModule.body().getArgument(firrtlArg++);
 
-    bool isZeroWidth =
-        port.type.cast<FIRRTLType>().getBitWidthOrSentinel() == 0;
+    auto portFType = port.type.dyn_cast<FIRRTLType>();
+    bool isZeroWidth = portFType && portFType.getBitWidthOrSentinel() == 0;
 
     if (!port.isOutput() && !isZeroWidth) {
       // Inputs and InOuts are modeled as arguments in the result, so we can
@@ -1259,6 +1273,18 @@ FIRRTLModuleLowering::lowerModuleBody(FModuleOp oldModule,
       outputs.push_back(value);
       assert(oldArg.use_empty() && "should have removed all uses of oldArg");
       continue;
+    }
+
+    // Ports of foreign type *have* to be materialized directly by the code
+    // above, since we cannot construct a wire around those types.
+    if (!portFType) {
+      auto d = mlir::emitError(port.loc, "output port `")
+               << port.name.getValue()
+               << "` with foreign type must be directly materialized";
+      d.attachNote(port.loc)
+          << "there must be a single connection to this module port";
+      signalPassFailure();
+      return failure();
     }
 
     // Outputs need a temporary wire so they can be connect'd to, which we
@@ -2800,10 +2826,34 @@ LogicalResult FIRRTLLowering::visitDecl(InstanceOp oldInstance) {
     if (port.isOutput())
       continue;
 
-    // If we can find the connects to this port, then we can directly
-    // materialize it.
+    // If this port has a foreign type, we cannot construct a `WireOp` around it
+    // and rely on later optimizing that wire away again since the `InOutType`
+    // cannot wrap arbitrary values. Therefore we ensure that there is a trivial
+    // single connect op assigning it a value. We reuse the old instance's
+    // result value as a placeholder for the new instance's input, and rely on
+    // the later lowering of `StrictConnectOp` to replace the old value with the
+    // lowering of whatever it was connected to. The reason why we can't
+    // materialize the value here directly is that lowering of the connect's
+    // source operand has likely not yet happened.
+    //
+    // TODO: We may want to expand this to non-FIRRTL types and insert an
+    // `UnrealizedConversionCastOp` here to capture the dependency of the new
+    // instance's input on the lowered version of the connected value.
     auto portResult = oldInstance.getResult(portIndex);
     assert(portResult && "invalid IR, couldn't find port");
+    if (!port.type.isa<FIRRTLType>()) {
+      auto connectOp = getSingleConnectUserOf(portResult);
+      if (!connectOp) {
+        auto d = oldInstance->emitOpError("input port `")
+                 << port.name.getValue()
+                 << "` with foreign type must be directly materialized";
+        d.attachNote(oldInstance->getLoc())
+            << "there must be a single connection to this instance port";
+        return failure();
+      }
+      operands.push_back(portResult);
+      continue;
+    }
 
     // Create a wire for each input/inout operand, so there is
     // something to connect to.
@@ -2853,7 +2903,9 @@ LogicalResult FIRRTLLowering::visitDecl(InstanceOp oldInstance) {
       newInstance->setAttr("hw.verilogName", forceName);
 
   // Now that we have the new hw.instance, we need to remap all of the users
-  // of the outputs/results to the values returned by the instance.
+  // of the outputs/results to the values returned by the instance. We also
+  // directly materialize output values of foreign types by replacing uses of
+  // the old instance port with the new port, and skip regular lowering.
   unsigned resultNo = 0;
   for (size_t portIndex = 0, e = portInfo.size(); portIndex != e; ++portIndex) {
     auto &port = portInfo[portIndex];
@@ -2861,9 +2913,12 @@ LogicalResult FIRRTLLowering::visitDecl(InstanceOp oldInstance) {
       continue;
 
     Value resultVal = newInstance.getResult(resultNo);
-
     auto oldPortResult = oldInstance.getResult(portIndex);
-    (void)setLowering(oldPortResult, resultVal);
+
+    if (!oldPortResult.getType().isa<FIRRTLType>())
+      oldPortResult.replaceAllUsesWith(resultVal);
+    else
+      (void)setLowering(oldPortResult, resultVal);
     ++resultNo;
   }
   return success();
@@ -3482,7 +3537,16 @@ LogicalResult FIRRTLLowering::visitStmt(PartialConnectOp op) {
 }
 
 LogicalResult FIRRTLLowering::visitStmt(StrictConnectOp op) {
+  // Connects involving foreign types directly replace all uses of the
+  // destination value with the source value. Input ports of instances and
+  // output ports of modules directly use the foreign-typed value as operands
+  // and rely on this replacement to happen.
   auto dest = op.dest();
+  if (!dest.getType().isa<FIRRTLType>()) {
+    dest.replaceAllUsesWith(op.src());
+    return success();
+  }
+
   auto srcVal = getLoweredValue(op.src());
   if (!srcVal)
     return handleZeroBit(op.src(), []() { return success(); });

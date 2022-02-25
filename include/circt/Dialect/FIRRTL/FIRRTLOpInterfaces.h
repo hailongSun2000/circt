@@ -28,7 +28,7 @@ class FIRRTLType;
 /// This holds the name and type that describes the module's ports.
 struct PortInfo {
   StringAttr name;
-  FIRRTLType type;
+  Type type;
   Direction direction;
   StringAttr sym = {};
   Location loc = UnknownLoc::get(type.getContext());
@@ -39,17 +39,25 @@ struct PortInfo {
   /// Return true if this is a simple output-only port.  If you want the
   /// direction of the port, use the \p direction parameter.
   bool isOutput() {
-    auto flags = type.getRecursiveTypeProperties();
-    return flags.isPassive && !flags.containsAnalog &&
-           direction == Direction::Out;
+    if (direction != Direction::Out)
+      return false;
+    if (auto ftype = type.dyn_cast<FIRRTLType>()) {
+      auto flags = ftype.getRecursiveTypeProperties();
+      return flags.isPassive && !flags.containsAnalog;
+    }
+    return true;
   }
 
   /// Return true if this is a simple input-only port.  If you want the
   /// direction of the port, use the \p direction parameter.
   bool isInput() {
-    auto flags = type.getRecursiveTypeProperties();
-    return flags.isPassive && !flags.containsAnalog &&
-           direction == Direction::In;
+    if (direction != Direction::In)
+      return false;
+    if (auto ftype = type.dyn_cast<FIRRTLType>()) {
+      auto flags = ftype.getRecursiveTypeProperties();
+      return flags.isPassive && !flags.containsAnalog;
+    }
+    return true;
   }
 
   /// Return true if this is an inout port.  This will be true if the port
