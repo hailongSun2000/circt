@@ -302,6 +302,96 @@ firrtl.circuit "Foo" {
     // CHECK: wire [[INV:_invalid.*]] : Clock
     // CHECK-NEXT: [[INV]] is invalid
     // CHECK-NEXT: reg dummyReg : UInt<42>, [[INV]]
+
+    %c0_ui0 = firrtl.constant 0 : !firrtl.uint<0>
+    %zeroWidth = firrtl.node %c0_ui0 : !firrtl.uint<0>
+    // CHECK: wire [[INV:_zeroWidthConst.*]] : UInt<0>
+    // CHECK-NEXT: [[INV]] is invalid
+    // CHECK-NEXT: node zeroWidth = [[INV]]
+  }
+
+  // CHECK-LABEL: module MultibitMux :
+  firrtl.module @MultibitMux(
+    in %s0: !firrtl.uint<1>,
+    in %s1: !firrtl.uint<2>,
+    in %s2: !firrtl.uint<3>,
+    in %a0: !firrtl.uint<42>,
+    in %a1: !firrtl.uint<42>,
+    in %b0: !firrtl.uint<42>,
+    in %b1: !firrtl.uint<42>,
+    in %b2: !firrtl.uint<42>,
+    in %b3: !firrtl.uint<42>,
+    in %c0: !firrtl.uint<42>,
+    in %c1: !firrtl.uint<42>,
+    in %c2: !firrtl.uint<42>,
+    in %c3: !firrtl.uint<42>,
+    in %c4: !firrtl.uint<42>,
+    in %c5: !firrtl.uint<42>
+  ) {
+    %0 = firrtl.multibit_mux %s0, %a1, %a0 : !firrtl.uint<1>, !firrtl.uint<42>
+    %mux1 = firrtl.node %0 : !firrtl.uint<42>
+    // CHECK: wire [[MUX:_mux.*]] : UInt<42>[2]
+    // CHECK-NEXT: [[MUX]][1] <= a1
+    // CHECK-NEXT: [[MUX]][0] <= a0
+    // CHECK-NEXT: node mux1 = [[MUX]][s0]
+
+    %1 = firrtl.multibit_mux %s1, %b3, %b2, %b1, %b0 : !firrtl.uint<2>, !firrtl.uint<42>
+    %mux2 = firrtl.node %1 : !firrtl.uint<42>
+    // CHECK: wire [[MUX:_mux.*]] : UInt<42>[4]
+    // CHECK-NEXT: [[MUX]][3] <= b3
+    // CHECK-NEXT: [[MUX]][2] <= b2
+    // CHECK-NEXT: [[MUX]][1] <= b1
+    // CHECK-NEXT: [[MUX]][0] <= b0
+    // CHECK-NEXT: node mux2 = [[MUX]][s1]
+
+    %2 = firrtl.multibit_mux %s2, %c5, %c4, %c3, %c2, %c1, %c0 : !firrtl.uint<3>, !firrtl.uint<42>
+    %mux3 = firrtl.node %2 : !firrtl.uint<42>
+    // CHECK: wire [[MUX:_mux.*]] : UInt<42>[6]
+    // CHECK-NEXT: [[MUX]] is invalid
+    // CHECK-NEXT: [[MUX]][5] <= c5
+    // CHECK-NEXT: [[MUX]][4] <= c4
+    // CHECK-NEXT: [[MUX]][3] <= c3
+    // CHECK-NEXT: [[MUX]][2] <= c2
+    // CHECK-NEXT: [[MUX]][1] <= c1
+    // CHECK-NEXT: [[MUX]][0] <= c0
+    // CHECK-NEXT: node mux3 = [[MUX]][s2]
+  }
+
+  // CHECK-LABEL: module SpillExpressions :
+  firrtl.module @SpillExpressions(in %a: !firrtl.uint<1>) {
+    %0 = firrtl.not %a : (!firrtl.uint<1>) -> !firrtl.uint<1>
+    %1 = firrtl.and %0, %0 : (!firrtl.uint<1>, !firrtl.uint<1>) -> !firrtl.uint<1>
+    %x = firrtl.node %1 : !firrtl.uint<1>
+    // CHECK: node [[TMP:_T.*]] = not(a)
+    // CHECK-NEXT: node x = and([[TMP]], [[TMP]])
+  }
+
+  // CHECK-LABEL: module AnonymousDecls :
+  firrtl.module @AnonymousDecls() {
+    %invalid_ui1 = firrtl.invalidvalue : !firrtl.uint<1>
+    %0 = firrtl.wire : !firrtl.uint<1>
+    firrtl.strictconnect %0, %invalid_ui1 : !firrtl.uint<1>
+    // CHECK-NEXT: wire [[TMP:_T.*]] : UInt<1>
+    // CHECK-NEXT: [[TMP]] is invalid
+  }
+
+  // CHECK-LABEL: module ConflictingNames :
+  firrtl.module @ConflictingNames(in %b : !firrtl.uint<1>) {
+    %invalid_ui1 = firrtl.invalidvalue : !firrtl.uint<1>
+    %0 = firrtl.wire {name = "a"} : !firrtl.uint<1>
+    %1 = firrtl.wire {name = "a"} : !firrtl.uint<1>
+    %2 = firrtl.wire {name = "b"} : !firrtl.uint<1>
+    firrtl.strictconnect %0, %invalid_ui1 : !firrtl.uint<1>
+    firrtl.strictconnect %1, %invalid_ui1 : !firrtl.uint<1>
+    firrtl.strictconnect %2, %invalid_ui1 : !firrtl.uint<1>
+    // CHECK-NEXT: input b : UInt<1>
+    // CHECK-EMPTY:
+    // CHECK-NEXT: wire a : UInt<1>
+    // CHECK-NEXT: wire a_0 : UInt<1>
+    // CHECK-NEXT: wire b_0 : UInt<1>
+    // CHECK-NEXT: a is invalid
+    // CHECK-NEXT: a_0 is invalid
+    // CHECK-NEXT: b_0 is invalid
   }
 
   firrtl.extmodule @MyParameterizedExtModule<DEFAULT: i64 = 0, DEPTH: f64 = 3.242000e+01, FORMAT: none = "xyz_timeout=%d\0A", WIDTH: i8 = 32>(in in: !firrtl.uint, out out: !firrtl.uint<8>) attributes {defname = "name_thing"}
@@ -313,4 +403,8 @@ firrtl.circuit "Foo" {
   // CHECK-NEXT:    parameter DEPTH = 32.42
   // CHECK-NEXT:    parameter FORMAT = "xyz_timeout=%d\n"
   // CHECK-NEXT:    parameter WIDTH = 32
+
+  // CHECK-LABEL: module EmptyModule :
+  // CHECK-NEXT: skip
+  firrtl.module @EmptyModule() {}
 }

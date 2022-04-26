@@ -71,6 +71,7 @@ struct Emitter {
   void emitStatement(AttachOp op);
   void emitStatement(MemOp op);
   void emitStatement(InvalidValueOp op);
+  void emitStatement(MultibitMuxOp op);
   void emitStatement(CombMemOp op);
   void emitStatement(SeqMemOp op);
   void emitStatement(MemoryPortOp op);
@@ -82,13 +83,14 @@ struct Emitter {
   void emitStatement(AssumeOp op) { emitVerifStatement(op, "assume"); }
   void emitStatement(CoverOp op) { emitVerifStatement(op, "cover"); }
 
-  // Exprsesion emission
+  // Expression emission
   void emitExpression(Value value);
   void emitExpression(ConstantOp op);
   void emitExpression(SpecialConstantOp op);
   void emitExpression(SubfieldOp op);
   void emitExpression(SubindexOp op);
   void emitExpression(SubaccessOp op);
+  void emitExpression(MultibitMuxOp op);
 
   void emitPrimExpr(StringRef mnemonic, Operation *op,
                     ArrayRef<uint32_t> attrs = {});
@@ -198,9 +200,47 @@ private:
     auto it = valueNamesStorage.insert(str);
     valueNames.insert({value, it.first->getKey()});
   }
+  StringRef addOrCreateDeclName(Value value, StringAttr attr) {
+    StringRef name;
+    if (!attr || attr.getValue().empty())
+      name = moduleNamespace.newName("_T");
+    else
+      name = moduleNamespace.newName(attr.getValue());
+    addValueName(value, name);
+    return name;
+  }
+  StringRef getValueName(Value value) {
+    auto name = valueNames.lookup(value);
+    if (name.empty()) {
+      emitOpError(value.getDefiningOp(), "no name emitted for value");
+      return "<<<MISSING-NAME>>>";
+    }
+    return name;
+  }
+
+  /// The names assigned to certain operations.
+  DenseMap<Operation *, StringRef> opNames;
+
+  void addOpName(Operation *op, StringAttr attr) {
+    opNames.insert({op, attr.getValue()});
+  }
+  void addOpName(Operation *op, StringRef str) {
+    auto it = valueNamesStorage.insert(str);
+    opNames.insert({op, it.first->getKey()});
+  }
+  StringRef getOpName(Operation *op) {
+    auto name = opNames.lookup(op);
+    if (name.empty()) {
+      emitOpError(op, "no name emitted for op");
+      return "<<<MISSING-NAME>>>";
+    }
+    return name;
+  }
 
   /// The current circuit namespace valid within the call to `emitCircuit`.
   CircuitNamespace circuitNamespace;
+  /// The current module namespace valid within the call to `emitModule`.
+  Namespace moduleNamespace;
 };
 } // namespace
 
@@ -222,6 +262,10 @@ void Emitter::emitCircuit(CircuitOp op) {
         .Default([&](auto op) {
           emitOpError(op, "not supported for emission inside circuit");
         });
+    valueNames.clear();
+    valueNamesStorage.clear();
+    opNames.clear();
+    moduleNamespace.clear();
   }
   reduceIndent();
   circuitNamespace.clear();
@@ -242,8 +286,6 @@ void Emitter::emitModule(FModuleOp op) {
   emitStatementsInBlock(*op.getBody());
 
   reduceIndent();
-  valueNames.clear();
-  valueNamesStorage.clear();
 }
 
 /// Emit an external module.
@@ -294,9 +336,10 @@ void Emitter::emitModulePorts(ArrayRef<PortInfo> ports,
   for (unsigned i = 0, e = ports.size(); i < e; ++i) {
     const auto &port = ports[i];
     indent() << (port.direction == Direction::In ? "input " : "output ");
+    auto name = moduleNamespace.newName(port.name.getValue());
     if (!arguments.empty())
-      addValueName(arguments[i], port.name);
-    os << port.name.getValue() << " : ";
+      addValueName(arguments[i], name);
+    os << name << " : ";
     emitType(port.type);
     os << "\n";
   }
@@ -305,26 +348,72 @@ void Emitter::emitModulePorts(ArrayRef<PortInfo> ports,
 /// Check if an operation is inlined into the emission of their users. For
 /// example, subfields are always inlined.
 static bool isEmittedInline(Operation *op) {
-  return isExpression(op) && !isa<InvalidValueOp>(op);
+  return isExpression(op) && !isa<InvalidValueOp, MultibitMuxOp>(op);
+}
+
+/// Check if an expression should be spilled into a node to avoid wasteful
+/// repeated emission of the entire sub-expression tree.
+static bool shouldSpill(Value value) {
+  if (isa<ConstantOp, InvalidValueOp, SubindexOp, SubaccessOp, SubfieldOp>(
+          value.getDefiningOp()))
+    return false;
+  return std::distance(value.use_begin(), value.use_end()) > 1;
 }
 
 void Emitter::emitStatementsInBlock(Block &block) {
+  auto anyEmitted = false;
+
   for (auto &bodyOp : block) {
     if (encounteredError)
       return;
-    if (isEmittedInline(&bodyOp))
+
+    // Replace zero-width constants with an invalid value, since the Scala
+    // FIRRTL compiler really doesn't like zero-width constants.
+    if (auto constOp = dyn_cast<ConstantOp>(&bodyOp)) {
+      if (constOp.getType().getBitWidthOrSentinel() == 0) {
+        auto name = moduleNamespace.newName("_zeroWidthConst");
+        addValueName(constOp, name);
+        indent() << "wire " << name << " : ";
+        emitType(constOp.getType());
+        emitLocationAndNewLine(constOp);
+        indent() << name << " is invalid";
+        emitLocationAndNewLine(constOp);
+        anyEmitted = true;
+        continue;
+      }
+    }
+
+    // Spill long expressions.
+    if (isEmittedInline(&bodyOp)) {
+      auto result = bodyOp.getResult(0);
+      if (shouldSpill(result)) {
+        auto name = moduleNamespace.newName("_T");
+        indent() << "node " << name << " = ";
+        emitExpression(result);
+        emitLocationAndNewLine(&bodyOp);
+        addValueName(result, name); // must appear after emitExpression
+        anyEmitted = true;
+      }
       continue;
+    }
+
     TypeSwitch<Operation *>(&bodyOp)
         .Case<WhenOp, WireOp, RegOp, RegResetOp, NodeOp, StopOp, SkipOp,
               PrintFOp, AssertOp, AssumeOp, CoverOp, ConnectOp, StrictConnectOp,
               PartialConnectOp, InstanceOp, AttachOp, MemOp, InvalidValueOp,
-              SeqMemOp, CombMemOp, MemoryPortOp, MemoryPortAccessOp>(
-            [&](auto op) { emitStatement(op); })
+              MultibitMuxOp, SeqMemOp, CombMemOp, MemoryPortOp,
+              MemoryPortAccessOp>([&](auto op) { emitStatement(op); })
         .Default([&](auto op) {
           indent() << "// operation " << op->getName() << "\n";
           emitOpError(op, "not supported as statement");
         });
+    anyEmitted = true;
   }
+
+  // In case we didn't end up emitting anything, add a "skip" to make the FIR
+  // parser happy.
+  if (!anyEmitted)
+    indent() << "skip\n";
 }
 
 void Emitter::emitStatement(WhenOp op, bool noIndent) {
@@ -356,15 +445,15 @@ void Emitter::emitStatement(WhenOp op, bool noIndent) {
 }
 
 void Emitter::emitStatement(WireOp op) {
-  addValueName(op, op.nameAttr());
-  indent() << "wire " << op.name() << " : ";
+  auto name = addOrCreateDeclName(op, op.nameAttr());
+  indent() << "wire " << name << " : ";
   emitType(op.getType());
   emitLocationAndNewLine(op);
 }
 
 void Emitter::emitStatement(RegOp op) {
-  addValueName(op, op.nameAttr());
-  indent() << "reg " << op.name() << " : ";
+  auto name = addOrCreateDeclName(op, op.nameAttr());
+  indent() << "reg " << name << " : ";
   emitType(op.getType());
   os << ", ";
   emitExpression(op.clockVal());
@@ -372,8 +461,8 @@ void Emitter::emitStatement(RegOp op) {
 }
 
 void Emitter::emitStatement(RegResetOp op) {
-  addValueName(op, op.nameAttr());
-  indent() << "reg " << op.name() << " : ";
+  auto name = addOrCreateDeclName(op, op.nameAttr());
+  indent() << "reg " << name << " : ";
   emitType(op.getType());
   os << ", ";
   emitExpression(op.clockVal());
@@ -387,8 +476,8 @@ void Emitter::emitStatement(RegResetOp op) {
 }
 
 void Emitter::emitStatement(NodeOp op) {
-  addValueName(op, op.nameAttr());
-  indent() << "node " << op.name() << " = ";
+  auto name = addOrCreateDeclName(op, op.nameAttr());
+  indent() << "node " << name << " = ";
   emitExpression(op.input());
   emitLocationAndNewLine(op);
 }
@@ -481,12 +570,13 @@ void Emitter::emitStatement(PartialConnectOp op) {
 }
 
 void Emitter::emitStatement(InstanceOp op) {
-  indent() << "inst " << op.name() << " of " << op.moduleName();
+  auto name = moduleNamespace.newName(op.name());
+  indent() << "inst " << name << " of " << op.moduleName();
   emitLocationAndNewLine(op);
 
   // Make sure we have a name like `<inst>.<port>` for each of the instance
   // result values.
-  SmallString<16> portName(op.name());
+  SmallString<16> portName(name);
   portName.push_back('.');
   unsigned baseLen = portName.size();
   for (unsigned i = 0, e = op.getNumResults(); i < e; ++i) {
@@ -505,7 +595,10 @@ void Emitter::emitStatement(AttachOp op) {
 }
 
 void Emitter::emitStatement(MemOp op) {
-  SmallString<16> portName(op.name());
+  auto name = moduleNamespace.newName(op.name());
+  addOpName(op, name);
+
+  SmallString<16> portName(name);
   portName.push_back('.');
   auto portNameBaseLen = portName.size();
   for (auto result : llvm::zip(op.getResults(), op.portNames())) {
@@ -514,7 +607,7 @@ void Emitter::emitStatement(MemOp op) {
     addValueName(std::get<0>(result), portName);
   }
 
-  indent() << "mem " << op.name() << " :";
+  indent() << "mem " << name << " :";
   emitLocationAndNewLine(op);
   addIndent();
 
@@ -559,7 +652,9 @@ void Emitter::emitStatement(MemOp op) {
 }
 
 void Emitter::emitStatement(SeqMemOp op) {
-  indent() << "smem " << op.name() << " : ";
+  auto name = moduleNamespace.newName(op.name());
+  addOpName(op, name);
+  indent() << "smem " << name << " : ";
   emitType(op.getType());
   os << " ";
   emitAttribute(op.ruw());
@@ -567,14 +662,17 @@ void Emitter::emitStatement(SeqMemOp op) {
 }
 
 void Emitter::emitStatement(CombMemOp op) {
-  indent() << "cmem " << op.name() << " : ";
+  auto name = moduleNamespace.newName(op.name());
+  addOpName(op, name);
+  indent() << "cmem " << name << " : ";
   emitType(op.getType());
   emitLocationAndNewLine(op);
 }
 
 void Emitter::emitStatement(MemoryPortOp op) {
   // Nothing to output for this operation.
-  addValueName(op.data(), op.name());
+  auto name = moduleNamespace.newName(op.name());
+  addValueName(op.data(), name);
 }
 
 void Emitter::emitStatement(MemoryPortAccessOp op) {
@@ -583,14 +681,11 @@ void Emitter::emitStatement(MemoryPortAccessOp op) {
   // Print the port direction and name.
   auto port = cast<MemoryPortOp>(op.port().getDefiningOp());
   emitAttribute(port.direction());
-  os << " mport " << port.name() << " = ";
+  os << " mport " << getValueName(port.data()) << " = ";
 
   // Print the memory name.
   auto *mem = port.memory().getDefiningOp();
-  if (auto seqMem = dyn_cast<SeqMemOp>(mem))
-    os << seqMem.name();
-  else
-    os << cast<CombMemOp>(mem).name();
+  os << getOpName(mem);
 
   // Print the address.
   os << "[";
@@ -608,17 +703,38 @@ void Emitter::emitStatement(InvalidValueOp op) {
   // a connect.
   if (llvm::all_of(op->getUses(), [&](OpOperand &use) {
         return use.getOperandNumber() == 1 &&
-               isa<ConnectOp, PartialConnectOp>(use.getOwner());
+               isa<ConnectOp, PartialConnectOp, StrictConnectOp>(
+                   use.getOwner());
       }))
     return;
 
-  auto name = circuitNamespace.newName("_invalid");
+  auto name = moduleNamespace.newName("_invalid");
   addValueName(op, name);
   indent() << "wire " << name << " : ";
   emitType(op.getType());
   emitLocationAndNewLine(op);
   indent() << name << " is invalid";
   emitLocationAndNewLine(op);
+}
+
+void Emitter::emitStatement(MultibitMuxOp op) {
+  // Create an array temporary such that we can use a subaccess to represent the
+  // multi-way mux operation.
+  auto name = moduleNamespace.newName("_mux");
+  addOpName(op, name);
+  indent() << "wire " << name << " : ";
+  emitType(FVectorType::get(op.getType(), op.inputs().size()));
+  emitLocationAndNewLine(op);
+  if (!llvm::isPowerOf2_64(op.inputs().size())) {
+    indent() << name << " is invalid";
+    emitLocationAndNewLine(op);
+  }
+  for (auto inputAndIndex : llvm::enumerate(op.inputs())) {
+    indent() << name << "[" << (op.inputs().size() - inputAndIndex.index() - 1)
+             << "] <= ";
+    emitExpression(inputAndIndex.value());
+    emitLocationAndNewLine(op);
+  }
 }
 
 void Emitter::emitExpression(Value value) {
@@ -635,6 +751,7 @@ void Emitter::emitExpression(Value value) {
       .Case<
           // Basic expressions
           ConstantOp, SpecialConstantOp, SubfieldOp, SubindexOp, SubaccessOp,
+          MultibitMuxOp,
           // Binary
           AddPrimOp, SubPrimOp, MulPrimOp, DivPrimOp, RemPrimOp, AndPrimOp,
           OrPrimOp, XorPrimOp, LEQPrimOp, LTPrimOp, GEQPrimOp, GTPrimOp,
@@ -687,6 +804,15 @@ void Emitter::emitExpression(SubindexOp op) {
 void Emitter::emitExpression(SubaccessOp op) {
   emitExpression(op.input());
   os << "[";
+  emitExpression(op.index());
+  os << "]";
+}
+
+void Emitter::emitExpression(MultibitMuxOp op) {
+  auto name = opNames.lookup(op);
+  assert(!name.empty() &&
+         "MultibitMuxOp should have been visited as statement before");
+  os << name << "[";
   emitExpression(op.index());
   os << "]";
 }
