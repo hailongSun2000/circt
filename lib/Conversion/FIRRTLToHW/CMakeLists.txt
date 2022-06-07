@@ -9,6 +9,7 @@ add_circt_conversion_library(CIRCTFIRRTLToHW
 
   LINK_LIBS PUBLIC
   CIRCTComb
+  CIRCTArc
   CIRCTFIRRTL
   CIRCTHW
   CIRCTSV

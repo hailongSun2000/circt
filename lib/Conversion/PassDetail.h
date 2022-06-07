@@ -43,6 +43,10 @@ class FuncOp;
 
 namespace circt {
 
+namespace arc {
+class ArcDialect;
+} // namespace arc
+
 namespace calyx {
 class CalyxDialect;
 } // namespace calyx

@@ -10,6 +10,7 @@ target_link_libraries(circt-opt
   PRIVATE
   CIRCTAffineToStaticLogic
   CIRCTAnalysisTestPasses
+  CIRCTArc
   CIRCTCalyx
   CIRCTCalyxToHW
   CIRCTCalyxTransforms

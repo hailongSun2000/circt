@@ -12,6 +12,7 @@
 
 #include "../PassDetail.h"
 #include "circt/Conversion/FIRRTLToHW.h"
+#include "circt/Dialect/Arc/Ops.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/FIRRTL/AnnotationDetails.h"
 #include "circt/Dialect/FIRRTL/FIRRTLAnnotations.h"
@@ -791,6 +792,7 @@ void FIRRTLModuleLowering::lowerFileHeader(CircuitOp op,
       !state.used_RANDOMIZE_MEM_INIT && !state.used_PRINTF_COND &&
       !state.used_ASSERT_VERBOSE_COND && !state.used_STOP_COND)
     return;
+  return;
 
   emitString("// Standard header to adapt well known macros to our needs.");
 
@@ -2512,6 +2514,7 @@ void FIRRTLLowering::emitRandomizePrologIfNeeded() {
 void FIRRTLLowering::initializeRegister(
     Value reg, llvm::Optional<std::pair<Value, Value>> asyncRegResetInitPair) {
   typedef std::pair<Attribute, std::pair<unsigned, unsigned>> SymbolAndRange;
+  return;
 
   // The point in the design where we should add randomization register
   // definitions.  This is at the top of the "`ifndef SYNTHESIS" block.
@@ -2750,23 +2753,24 @@ LogicalResult FIRRTLLowering::visitDecl(RegResetOp op) {
       builder.create<sv::RegOp>(resultType, op.nameAttr(), symName);
   (void)setLowering(op, regResult);
 
-  auto resetFn = [&]() {
-    builder.create<sv::PAssignOp>(regResult, resetValue);
-  };
+  // auto resetFn = [&]() {
+  //   builder.create<sv::PAssignOp>(regResult, resetValue);
+  // };
 
-  if (op.resetSignal().getType().isa<AsyncResetType>()) {
-    addToAlwaysBlock(sv::EventControl::AtPosEdge, clockVal,
-                     ::ResetType::AsyncReset, sv::EventControl::AtPosEdge,
-                     resetSignal, std::function<void()>(), resetFn);
-  } else { // sync reset
-    addToAlwaysBlock(sv::EventControl::AtPosEdge, clockVal,
-                     ::ResetType::SyncReset, sv::EventControl::AtPosEdge,
-                     resetSignal, std::function<void()>(), resetFn);
-  }
-  llvm::Optional<std::pair<Value, Value>> asyncRegResetInitPair;
-  if (op.resetSignal().getType().isa<AsyncResetType>())
-    asyncRegResetInitPair = {resetSignal, resetValue};
-  initializeRegister(regResult, asyncRegResetInitPair);
+  // if (op.resetSignal().getType().isa<AsyncResetType>()) {
+  //   addToAlwaysBlock(sv::EventControl::AtPosEdge, clockVal,
+  //                    ::ResetType::AsyncReset, sv::EventControl::AtPosEdge,
+  //                    resetSignal, std::function<void()>(), resetFn);
+  // } else { // sync reset
+  //   addToAlwaysBlock(sv::EventControl::AtPosEdge, clockVal,
+  //                    ::ResetType::SyncReset, sv::EventControl::AtPosEdge,
+  //                    resetSignal, std::function<void()>(), resetFn);
+  // }
+  // llvm::Optional<std::pair<Value, Value>> asyncRegResetInitPair;
+  // if (op.resetSignal().getType().isa<AsyncResetType>())
+  //   asyncRegResetInitPair = {resetSignal, resetValue};
+  // initializeRegister(regResult, asyncRegResetInitPair);
+  initializeRegister(regResult);
   return success();
 }
 
@@ -3563,8 +3567,7 @@ LogicalResult FIRRTLLowering::visitStmt(ConnectOp op) {
     if (!clockVal)
       return failure();
 
-    addToAlwaysBlock(clockVal,
-                     [&]() { builder.create<sv::PAssignOp>(destVal, srcVal); });
+    builder.create<arc::RegAssignOp>(destVal, srcVal, clockVal);
     return success();
   }
 
@@ -3573,15 +3576,13 @@ LogicalResult FIRRTLLowering::visitStmt(ConnectOp op) {
   if (auto regResetOp = dyn_cast_or_null<RegResetOp>(definingOp)) {
     Value clockVal = getLoweredValue(regResetOp.clockVal());
     Value resetSignal = getLoweredValue(regResetOp.resetSignal());
+    Value resetVal = getLoweredAndExtOrTruncValue(
+        regResetOp.resetValue(), regResetOp.getType().cast<FIRRTLType>());
     if (!clockVal || !resetSignal)
       return failure();
 
-    addToAlwaysBlock(sv::EventControl::AtPosEdge, clockVal,
-                     regResetOp.resetSignal().getType().isa<AsyncResetType>()
-                         ? ::ResetType::AsyncReset
-                         : ::ResetType::SyncReset,
-                     sv::EventControl::AtPosEdge, resetSignal,
-                     [&]() { builder.create<sv::PAssignOp>(destVal, srcVal); });
+    auto value = builder.create<comb::MuxOp>(resetSignal, resetVal, srcVal);
+    builder.create<arc::RegAssignOp>(destVal, value, clockVal);
     return success();
   }
 
@@ -3614,8 +3615,7 @@ LogicalResult FIRRTLLowering::visitStmt(StrictConnectOp op) {
     if (!clockVal)
       return failure();
 
-    addToAlwaysBlock(clockVal,
-                     [&]() { builder.create<sv::PAssignOp>(destVal, srcVal); });
+    builder.create<arc::RegAssignOp>(destVal, srcVal, clockVal);
     return success();
   }
 
@@ -3624,15 +3624,13 @@ LogicalResult FIRRTLLowering::visitStmt(StrictConnectOp op) {
   if (auto regResetOp = dyn_cast_or_null<RegResetOp>(definingOp)) {
     Value clockVal = getLoweredValue(regResetOp.clockVal());
     Value resetSignal = getLoweredValue(regResetOp.resetSignal());
+    Value resetVal = getLoweredAndExtOrTruncValue(
+        regResetOp.resetValue(), regResetOp.getType().cast<FIRRTLType>());
     if (!clockVal || !resetSignal)
       return failure();
 
-    addToAlwaysBlock(sv::EventControl::AtPosEdge, clockVal,
-                     regResetOp.resetSignal().getType().isa<AsyncResetType>()
-                         ? ::ResetType::AsyncReset
-                         : ::ResetType::SyncReset,
-                     sv::EventControl::AtPosEdge, resetSignal,
-                     [&]() { builder.create<sv::PAssignOp>(destVal, srcVal); });
+    auto value = builder.create<comb::MuxOp>(resetSignal, resetVal, srcVal);
+    builder.create<arc::RegAssignOp>(destVal, value, clockVal);
     return success();
   }
 
@@ -3641,6 +3639,7 @@ LogicalResult FIRRTLLowering::visitStmt(StrictConnectOp op) {
 }
 
 LogicalResult FIRRTLLowering::visitStmt(ForceOp op) {
+  return success();
   auto srcVal = getLoweredValue(op.src());
   if (!srcVal)
     return failure();
@@ -3661,6 +3660,7 @@ LogicalResult FIRRTLLowering::visitStmt(ForceOp op) {
 // Printf is a macro op that lowers to an sv.ifdef.procedural, an sv.if,
 // and an sv.fwrite all nested together.
 LogicalResult FIRRTLLowering::visitStmt(PrintFOp op) {
+  return success();
   auto clock = getLoweredValue(op.clock());
   auto cond = getLoweredValue(op.cond());
   if (!clock || !cond)
@@ -3702,6 +3702,7 @@ LogicalResult FIRRTLLowering::visitStmt(PrintFOp op) {
 // Stop lowers into a nested series of behavioral statements plus $fatal
 // or $finish.
 LogicalResult FIRRTLLowering::visitStmt(StopOp op) {
+  return success();
   auto clock = getLoweredValue(op.clock());
   auto cond = getLoweredValue(op.cond());
   if (!clock || !cond)
@@ -3782,6 +3783,8 @@ LogicalResult FIRRTLLowering::lowerVerificationStatement(
     Operation *op, StringRef labelPrefix, Value opClock, Value opPredicate,
     Value opEnable, StringAttr opMessageAttr, ValueRange opOperands,
     StringAttr opNameAttr, bool isConcurrent, EventControl opEventControl) {
+  return success();
+
   StringRef opName = op->getName().stripDialect();
   auto isAssert = opName == "assert";
   auto isCover = opName == "cover";

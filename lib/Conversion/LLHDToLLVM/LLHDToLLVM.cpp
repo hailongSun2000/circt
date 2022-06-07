@@ -2086,6 +2086,10 @@ struct HWArrayCreateOpConversion
                   ConversionPatternRewriter &rewriter) const override {
 
     auto arrayTy = typeConverter->convertType(op->getResult(0).getType());
+    if (!arrayTy) {
+      op.emitOpError("cannot convert result type");
+      return failure();
+    }
 
     Value arr = rewriter.create<LLVM::UndefOp>(op->getLoc(), arrayTy);
     for (size_t i = 0, e = op.inputs().size(); i < e; ++i) {
@@ -2542,6 +2546,45 @@ struct CombConcatOpConversion : public ConvertToLLVMPattern {
 };
 } // namespace
 
+namespace {
+/// Convert a comb::ReplicateOp to the LLVM dialect.
+struct CombReplicateOpConversion : public ConvertToLLVMPattern {
+  explicit CombReplicateOpConversion(MLIRContext *ctx,
+                                     LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(comb::ReplicateOp::getOperationName(), ctx,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto replicateOp = cast<comb::ReplicateOp>(op);
+    mlir::Type type = replicateOp.result().getType();
+
+    unsigned nextInsertion = type.getIntOrFloatBitWidth();
+    auto aggregate = rewriter
+                         .create<LLVM::ConstantOp>(op->getLoc(), type,
+                                                   IntegerAttr::get(type, 0))
+                         .getRes();
+
+    for (unsigned i = 0; i < replicateOp.getMultiple(); i++) {
+      nextInsertion -= replicateOp.input().getType().getIntOrFloatBitWidth();
+      auto nextInsValue = rewriter.create<LLVM::ConstantOp>(
+          op->getLoc(), type, IntegerAttr::get(type, nextInsertion));
+      auto extended = rewriter.create<LLVM::ZExtOp>(op->getLoc(), type,
+                                                    replicateOp.input());
+      auto shifted = rewriter.create<LLVM::ShlOp>(op->getLoc(), type, extended,
+                                                  nextInsValue);
+      aggregate =
+          rewriter.create<LLVM::OrOp>(op->getLoc(), type, aggregate, shifted)
+              .getRes();
+    }
+
+    rewriter.replaceOp(op, aggregate);
+    return success();
+  }
+};
+} // namespace
+
 //===----------------------------------------------------------------------===//
 // Memory operations
 //===----------------------------------------------------------------------===//
@@ -2624,7 +2667,8 @@ void circt::populateLLHDToLLVMConversionPatterns(LLVMTypeConverter &converter,
                SigArrayGetOpConversion, SigStructExtractOpConversion>(
       converter);
 
-  patterns.add<CombExtractOpConversion, CombConcatOpConversion>(ctx, converter);
+  patterns.add<CombExtractOpConversion, CombConcatOpConversion,
+               CombReplicateOpConversion>(ctx, converter);
 
   // Bitwise conversion patterns.
   patterns.add<ShrOpConversion, ShlOpConversion, CombParityOpConversion>(
@@ -2656,6 +2700,11 @@ void circt::populateLLHDToLLVMConversionPatterns(LLVMTypeConverter &converter,
   patterns.add<ArrayGetOpConversion, ArraySliceOpConversion,
                ArrayConcatOpConversion, StructExtractOpConversion,
                StructInjectOpConversion>(converter);
+
+  converter.addConversion(
+      [&](hw::ArrayType arr) { return convertArrayType(arr, converter); });
+  converter.addConversion(
+      [&](hw::StructType tup) { return convertStructType(tup, converter); });
 }
 
 void LLHDToLLVMLoweringPass::runOnOperation() {
