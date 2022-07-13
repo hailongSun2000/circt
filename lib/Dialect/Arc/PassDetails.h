@@ -10,6 +10,7 @@
 #define CIRCT_DIALECT_ARC_PASSDETAILS_H
 
 #include "circt/Dialect/Arc/Ops.h"
+#include "circt/Dialect/Arc/Types.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"

@@ -28,6 +28,8 @@ std::unique_ptr<mlir::Pass> createPrintArcInfoPass();
 std::unique_ptr<mlir::Pass> createLowerStatePass();
 std::unique_ptr<mlir::Pass> createScheduleModelsPass();
 std::unique_ptr<mlir::Pass> createSplitLoopsPass();
+std::unique_ptr<mlir::Pass> createAllocateStatePass();
+std::unique_ptr<mlir::Pass> createPrintStateInfoPass();
 std::unique_ptr<mlir::Pass> createLowerToLLVMPass();
 
 #define GEN_PASS_REGISTRATION

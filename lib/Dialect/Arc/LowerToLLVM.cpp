@@ -8,6 +8,7 @@
 
 #include "PassDetails.h"
 #include "circt/Conversion/LLHDToLLVM.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Support/Namespace.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
@@ -123,7 +124,188 @@ struct PassThroughOpLowering : public OpConversionPattern<arc::PassThroughOp> {
   }
 };
 
+struct AllocStorageOpLowering
+    : public OpConversionPattern<arc::AllocStorageOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arc::AllocStorageOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto type = typeConverter->convertType(op.getType());
+    Value offset = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), rewriter.getI32Type(), op.offsetAttr());
+    rewriter.replaceOpWithNewOp<LLVM::GEPOp>(op, type, adaptor.input(), offset);
+    return success();
+  }
+};
+
+struct AllocStateOpLowering : public ConversionPattern {
+  AllocStateOpLowering(TypeConverter &typeConverter, MLIRContext *context,
+                       PatternBenefit benefit = 1)
+      : ConversionPattern(typeConverter, MatchAnyOpTypeTag(), benefit,
+                          context) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (!isa<AllocStateOp, RootInputOp, RootOutputOp>(op))
+      return failure();
+
+    ArrayRef<Attribute> offsets =
+        op->getAttrOfType<ArrayAttr>("offsets").getValue();
+    assert(offsets.size() == op->getNumResults());
+
+    SmallVector<Value> values;
+    for (auto [result, offsetAttr] : llvm::zip(op->getResults(), offsets)) {
+      // Get a pointer to the correct offset in the storage.
+      Value offset = rewriter.create<LLVM::ConstantOp>(
+          op->getLoc(), rewriter.getI32Type(), offsetAttr);
+      Value ptr = rewriter.create<LLVM::GEPOp>(
+          op->getLoc(), operands[0].getType(), operands[0], offset);
+
+      // Cast the raw storage pointer to a pointer of the state's actual type.
+      auto ptrType = LLVM::LLVMPointerType::get(result.getType());
+      if (ptrType != ptr.getType())
+        ptr = rewriter.create<LLVM::BitcastOp>(op->getLoc(), ptrType, ptr);
+
+      // Load the value.
+      Value value = rewriter.create<LLVM::LoadOp>(result.getLoc(), ptr);
+      values.push_back(value);
+    }
+
+    rewriter.replaceOp(op, values);
+    return success();
+  }
+};
+
+struct UpdateStateOpLowering : public OpConversionPattern<arc::UpdateStateOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arc::UpdateStateOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    for (auto [state, value] : llvm::zip(adaptor.states(), adaptor.values())) {
+      auto ptr = state.getDefiningOp<LLVM::LoadOp>().getOperand();
+      rewriter.create<LLVM::StoreOp>(op.getLoc(), value, ptr);
+    }
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+struct AllocMemoryOpLowering : public OpConversionPattern<arc::AllocMemoryOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arc::AllocMemoryOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value offset = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), rewriter.getI32Type(), op->getAttr("offset"));
+    Value ptr = rewriter.create<LLVM::GEPOp>(
+        op.getLoc(), adaptor.storage().getType(), adaptor.storage(), offset);
+
+    auto type = typeConverter->convertType(op.getType());
+    if (type != ptr.getType())
+      ptr = rewriter.create<LLVM::BitcastOp>(op.getLoc(), type, ptr);
+
+    rewriter.replaceOp(op, ptr);
+    return success();
+  }
+};
+
+struct MemoryAccess {
+  Value ptr;
+  Value withinBounds;
+};
+
+static MemoryAccess prepareMemoryAccess(Location loc, Value memory,
+                                        Value address, MemoryType type,
+                                        ConversionPatternRewriter &rewriter) {
+  auto zextAddrType = rewriter.getIntegerType(
+      address.getType().cast<IntegerType>().getWidth() + 1);
+  Value addr = rewriter.create<LLVM::ZExtOp>(loc, zextAddrType, address);
+  Value addrLimit = rewriter.create<LLVM::ConstantOp>(
+      loc, zextAddrType, rewriter.getI32IntegerAttr(type.getNumWords()));
+  Value withinBounds = rewriter.create<LLVM::ICmpOp>(
+      loc, LLVM::ICmpPredicate::ult, addr, addrLimit);
+  auto ptrType = LLVM::LLVMPointerType::get(type.getWordType());
+  Value ptr =
+      rewriter.create<LLVM::GEPOp>(loc, ptrType, memory, ValueRange{addr});
+  return {ptr, withinBounds};
+};
+
+struct MemoryReadOpLowering : public OpConversionPattern<arc::MemoryReadOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arc::MemoryReadOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto type = typeConverter->convertType(op.getType());
+    auto access =
+        prepareMemoryAccess(op.getLoc(), adaptor.memory(), adaptor.address(),
+                            op.memory().getType().cast<MemoryType>(), rewriter);
+    auto enable = rewriter.create<LLVM::AndOp>(op.getLoc(), adaptor.enable(),
+                                               access.withinBounds);
+
+    // Only attempt to read the memory if the address is within bounds,
+    // otherwise produce a zero value.
+    rewriter.replaceOpWithNewOp<scf::IfOp>(
+        op, type, enable,
+        [&](auto &builder, auto loc) {
+          Value loadOp = builder.template create<LLVM::LoadOp>(loc, access.ptr);
+          builder.template create<scf::YieldOp>(loc, loadOp);
+        },
+        [&](auto &builder, auto loc) {
+          Value zeroValue = builder.template create<LLVM::ConstantOp>(
+              loc, type, builder.getI64IntegerAttr(0));
+          builder.template create<scf::YieldOp>(loc, zeroValue);
+        });
+    return success();
+  }
+};
+
+struct MemoryWriteOpLowering : public OpConversionPattern<arc::MemoryWriteOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arc::MemoryWriteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto access =
+        prepareMemoryAccess(op.getLoc(), adaptor.memory(), adaptor.address(),
+                            op.memory().getType().cast<MemoryType>(), rewriter);
+    auto enable = rewriter.create<LLVM::AndOp>(op.getLoc(), adaptor.enable(),
+                                               access.withinBounds);
+
+    // Only attempt to write the memory if the address is within bounds.
+    rewriter.replaceOpWithNewOp<scf::IfOp>(
+        op, enable, [&](auto &builder, auto loc) {
+          rewriter.create<LLVM::StoreOp>(loc, adaptor.data(), access.ptr);
+          rewriter.create<scf::YieldOp>(loc);
+        });
+    return success();
+  }
+};
+
+/// A dummy lowering for clock gates to an AND gate.
+struct ClockGateOpLowering : public OpConversionPattern<arc::ClockGateOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arc::ClockGateOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<comb::AndOp>(op, adaptor.input(),
+                                             adaptor.enable());
+    return success();
+  }
+};
+
 } // namespace
+
+static bool isArcType(Type type) {
+  return type.isa<StorageType>() || type.isa<MemoryType>();
+}
+
+static bool hasArcType(TypeRange types) {
+  return llvm::any_of(types, isArcType);
+}
+
+static bool hasArcType(ValueRange values) {
+  return hasArcType(values.getTypes());
+}
 
 static void populateLegality(ConversionTarget &target) {
   target.addLegalDialect<mlir::BuiltinDialect>();
@@ -138,11 +320,26 @@ static void populateLegality(ConversionTarget &target) {
   target.addIllegalOp<arc::StateOp>();
   target.addIllegalOp<arc::ClockTreeOp>();
   target.addIllegalOp<arc::PassThroughOp>();
+
+  target.addDynamicallyLegalOp<func::FuncOp>([](func::FuncOp op) {
+    auto argsConverted = llvm::none_of(op.getBlocks(), [](auto &block) {
+      return hasArcType(block.getArguments());
+    });
+    auto resultsConverted = !hasArcType(op.getResultTypes());
+    return argsConverted && resultsConverted;
+  });
 }
 
 static void populateTypeConversion(TypeConverter &typeConverter) {
-  typeConverter.addConversion([](Type type) { return type; });
-  // typeConverter.addConversion([](mlir::IntegerType type) { return type; });
+  typeConverter.addConversion([&](StorageType type) {
+    return LLVM::LLVMPointerType::get(IntegerType::get(type.getContext(), 8));
+  });
+  typeConverter.addConversion([&](MemoryType type) {
+    return LLVM::LLVMPointerType::get(
+        IntegerType::get(type.getContext(), type.getStride() * 8));
+  });
+  typeConverter.addConversion([](hw::ArrayType type) { return type; });
+  typeConverter.addConversion([](mlir::IntegerType type) { return type; });
 }
 
 static void populateOpConversion(RewritePatternSet &patterns,
@@ -154,7 +351,14 @@ static void populateOpConversion(RewritePatternSet &patterns,
     OutputOpLowering,
     StateOpLowering,
     ClockTreeOpLowering,
-    PassThroughOpLowering
+    PassThroughOpLowering,
+    AllocStorageOpLowering,
+    AllocStateOpLowering,
+    UpdateStateOpLowering,
+    AllocMemoryOpLowering,
+    MemoryReadOpLowering,
+    MemoryWriteOpLowering,
+    ClockGateOpLowering
   >(typeConverter, context);
   // clang-format on
 
@@ -184,7 +388,6 @@ struct ModelInfo {
 struct LowerToLLVMPass : public LowerToLLVMBase<LowerToLLVMPass> {
   void runOnOperation() override;
   LogicalResult runOnModel();
-  LogicalResult allocateState();
   LogicalResult isolateClockTrees();
   LogicalResult isolateClockTree(Operation *clockTreeOp);
 
@@ -211,56 +414,6 @@ void LowerToLLVMPass::runOnOperation() {
     modelOps.push_back(op);
     if (failed(runOnModel()))
       return signalPassFailure();
-  }
-
-  // Emit the model state information if requested.
-  if (!stateFile.empty()) {
-    std::error_code ec;
-    llvm::ToolOutputFile outputFile(stateFile, ec,
-                                    llvm::sys::fs::OpenFlags::OF_None);
-    if (ec) {
-      mlir::emitError(getOperation().getLoc(), "unable to open state file: ")
-          << ec.message();
-      return signalPassFailure();
-    }
-    llvm::json::OStream json(outputFile.os(), 2);
-    json.array([&] {
-      for (auto modelOp : modelOps) {
-        const auto &modelInfo = modelInfos[modelOp];
-        json.object([&] {
-          json.attribute("name", modelOp.name());
-          json.attribute("numStateBytes", modelInfo.numStateBytes);
-          json.attributeArray("states", [&] {
-            for (const auto &state : modelInfo.states) {
-              json.object([&] {
-                if (state.name && !state.name.getValue().empty())
-                  json.attribute("name", state.name.getValue());
-                json.attribute("offset", state.offset);
-                json.attribute("numBits", state.numBits);
-                auto typeStr = [](StateInfo::Type type) {
-                  switch (type) {
-                  case StateInfo::Input:
-                    return "input";
-                  case StateInfo::Output:
-                    return "output";
-                  case StateInfo::Register:
-                    return "register";
-                  case StateInfo::Memory:
-                    return "memory";
-                  }
-                };
-                json.attribute("type", typeStr(state.type));
-                if (state.type == StateInfo::Memory) {
-                  json.attribute("stride", state.memoryStride);
-                  json.attribute("depth", state.memoryDepth);
-                }
-              });
-            }
-          });
-        });
-      }
-    });
-    outputFile.keep();
   }
 
   // Erase the model ops.
@@ -314,365 +467,8 @@ void LowerToLLVMPass::runOnOperation() {
 
 LogicalResult LowerToLLVMPass::runOnModel() {
   pruningWorklist.clear();
-  if (failed(allocateState()))
-    return failure();
   if (failed(isolateClockTrees()))
     return failure();
-  return success();
-}
-
-LogicalResult LowerToLLVMPass::allocateState() {
-  LLVM_DEBUG(llvm::dbgs() << "Allocating states in model `" << modelOp.name()
-                          << "`\n");
-
-  SmallVector<Operation *> allocsToErase;
-  SmallVector<std::pair<Value, unsigned>> allocOffsets;
-  SmallVector<std::tuple<MemoryOp, unsigned, unsigned>> memoryOffsets;
-  SmallDenseMap<MemoryReadOp, Value> memoryReadBuffers;
-  SmallDenseMap<Value, IntegerAttr> memoryAddressLimits;
-
-  // A list of child state allocations to include in a parent block. Given as a
-  // list of placeholders for the child state pointer and the expected
-  // allocation size.
-  SmallDenseMap<
-      Block *,
-      SmallVector<std::tuple<Value, unsigned, SmallVector<StateInfo>>, 1>>
-      childAllocations;
-
-  modelOp.walk([&](Block *block) {
-    unsigned numAllocs = 0;
-    unsigned numMemories = 0;
-    unsigned currentByte = 0; // allocated size in bytes
-    auto allocBytes = [&](unsigned numBytes) {
-      if (numBytes >= 2)
-        currentByte = (currentByte + 1) / 2 * 2;
-      if (numBytes >= 4)
-        currentByte = (currentByte + 3) / 4 * 4;
-      if (numBytes >= 8)
-        currentByte = (currentByte + 7) / 8 * 8;
-      unsigned offset = currentByte;
-      currentByte += numBytes;
-      return offset;
-    };
-
-    // Allocate space for state and memories in this block.
-    allocOffsets.clear();
-    allocsToErase.clear();
-    memoryOffsets.clear();
-    SmallDenseMap<MemoryReadOp, Value> localMemoryReadBuffers;
-    SmallVector<StateInfo> stateInfos;
-    for (auto &op : *block) {
-      if (isa<AllocStateOp, RootInputOp, RootOutputOp>(&op)) {
-        allocsToErase.push_back(&op);
-        ArrayRef<Attribute> names;
-        if (auto namesAttr = op.getAttrOfType<ArrayAttr>("names"))
-          names = namesAttr.getValue();
-        for (auto result : op.getResults()) {
-          ++numAllocs;
-          auto intType = result.getType().cast<IntegerType>();
-          unsigned numBytes = (intType.getWidth() + 7) / 8;
-          unsigned offset = allocBytes(numBytes);
-          allocOffsets.push_back({result, offset});
-
-          auto &stateInfo = stateInfos.emplace_back();
-          stateInfo.type = StateInfo::Register;
-          if (isa<RootInputOp>(&op))
-            stateInfo.type = StateInfo::Input;
-          if (isa<RootOutputOp>(&op))
-            stateInfo.type = StateInfo::Output;
-          if (!names.empty())
-            stateInfo.name =
-                names[result.getResultNumber()].dyn_cast<StringAttr>();
-          else
-            stateInfo.name = op.getAttrOfType<StringAttr>("name");
-          stateInfo.offset = offset;
-          stateInfo.numBits = intType.getWidth();
-        }
-        continue;
-      }
-      if (auto memOp = dyn_cast<MemoryOp>(&op)) {
-        ++numMemories;
-        auto intType = memOp.getType();
-        unsigned numBytesPerWord = (intType.getWidth() + 7) / 8;
-        if (numBytesPerWord > 1)
-          numBytesPerWord = (numBytesPerWord + 1) / 2 * 2;
-        if (numBytesPerWord > 2)
-          numBytesPerWord = (numBytesPerWord + 3) / 4 * 4;
-        if (numBytesPerWord > 4)
-          numBytesPerWord = (numBytesPerWord + 7) / 8 * 8;
-        unsigned numBytes = memOp.numWords() * numBytesPerWord;
-        unsigned offset = allocBytes(numBytes);
-        memoryOffsets.push_back({memOp, offset, numBytesPerWord});
-
-        auto &stateInfo = stateInfos.emplace_back();
-        stateInfo.type = StateInfo::Memory;
-        stateInfo.name = op.getAttrOfType<StringAttr>("name");
-        stateInfo.offset = offset;
-        stateInfo.numBits = intType.getWidth();
-        stateInfo.memoryStride = numBytesPerWord;
-        stateInfo.memoryDepth = memOp.numWords();
-        continue;
-      }
-      if (auto memReadOp = dyn_cast<MemoryReadOp>(&op)) {
-        auto intType = memReadOp.getType();
-        unsigned numBytes = (intType.getWidth() + 7) / 8;
-        unsigned offset = allocBytes(numBytes);
-        OpBuilder builder(memReadOp);
-        localMemoryReadBuffers[memReadOp] = builder.create<LLVM::ConstantOp>(
-            memReadOp.getLoc(), builder.getI32Type(),
-            builder.getI32IntegerAttr(offset));
-      }
-    }
-
-    // Include child allocations. This rewrites the `unsigned` in the child
-    // allocations to mean "offset" instead of "number of bytes".
-    unsigned numChildAllocs = 0;
-    unsigned totalChildAllocBytes = 0;
-    auto &blockChildAllocs = childAllocations[block];
-    for (auto &[value, numBytes, childStateInfos] : blockChildAllocs) {
-      ++numChildAllocs;
-      totalChildAllocBytes += numBytes;
-      numBytes = allocBytes(numBytes);
-    }
-
-    if (currentByte == 0) {
-      childAllocations.erase(block);
-      return;
-    }
-    LLVM_DEBUG(llvm::dbgs()
-               << "- Allocated " << currentByte << " bytes for " << numAllocs
-               << " states, " << numMemories << " memories, including "
-               << totalChildAllocBytes << " bytes for " << numChildAllocs
-               << " nested states\n");
-
-    // Create a placeholder for the pointer to the allocated state. This will
-    // be provided by the parent later on, but we already have to be able to
-    // access various subelements here.
-    OpBuilder builder(block, block->begin());
-    auto bytePtrType = LLVM::LLVMPointerType::get(builder.getI8Type());
-    Value statePtr =
-        builder
-            .create<UnrealizedConversionCastOp>(block->getParentOp()->getLoc(),
-                                                bytePtrType, ValueRange{})
-            .getResult(0);
-
-    // For each memory read operation, assemble a pointer to its local scratch
-    // memory where it can keep the previously-read data.
-    for (auto [memReadOp, offset] : localMemoryReadBuffers) {
-      ImplicitLocOpBuilder builder(memReadOp.getLoc(), memReadOp);
-      Value ptr = builder.create<LLVM::GEPOp>(bytePtrType, statePtr,
-                                              ValueRange{offset});
-      auto ptrType = LLVM::LLVMPointerType::get(memReadOp.getType());
-      if (ptrType != ptr.getType())
-        ptr = builder.create<LLVM::BitcastOp>(ptrType, ptr);
-      memoryReadBuffers.insert({memReadOp, ptr});
-    }
-
-    // Create a pointer to a byte offset in the state, with a given type.
-    auto createOffsetPtr = [&](Location loc, Type type,
-                               unsigned offset) -> Value {
-      auto offsetOp = builder.create<LLVM::ConstantOp>(
-          loc, builder.getI32Type(), builder.getI32IntegerAttr(offset));
-      auto gepOp = builder.create<LLVM::GEPOp>(loc, bytePtrType, statePtr,
-                                               ValueRange{offsetOp});
-      auto ptrType = LLVM::LLVMPointerType::get(type);
-      if (ptrType == gepOp.getType())
-        return gepOp;
-      auto castOp = builder.create<LLVM::BitcastOp>(loc, ptrType, gepOp);
-      return castOp;
-    };
-
-    // Replace the placeholders for child allocations with a concrete pointer
-    // into the current state.
-    for (auto &[value, offset, childStateInfos] : blockChildAllocs) {
-      builder.setInsertionPoint(value.getDefiningOp());
-      auto childStatePtr =
-          createOffsetPtr(value.getLoc(), builder.getI8Type(), offset);
-      value.replaceAllUsesWith(childStatePtr);
-      value.getDefiningOp()->erase();
-      for (auto &info : childStateInfos)
-        info.offset += offset;
-      stateInfos.append(std::move(childStateInfos));
-    }
-    childAllocations.erase(block);
-
-    // Ensure our parent block will allocate space for our state.
-    childAllocations[block->getParentOp()->getBlock()].push_back(
-        {statePtr, currentByte, stateInfos});
-
-    // Replace the alloc ops with the corresponding LLVM GEP and load
-    // operation.
-    for (auto [value, offset] : allocOffsets) {
-      builder.setInsertionPoint(value.getDefiningOp());
-      auto castOp = createOffsetPtr(value.getLoc(), value.getType(), offset);
-      auto loadOp = builder.create<LLVM::LoadOp>(value.getLoc(), castOp);
-      Value castForUpdateOps =
-          builder
-              .create<UnrealizedConversionCastOp>(
-                  value.getLoc(), value.getType(), ValueRange{castOp})
-              .getResult(0);
-      for (auto &use : llvm::make_early_inc_range(value.getUses())) {
-        if (auto updateOp = dyn_cast<UpdateStateOp>(use.getOwner())) {
-          if (llvm::is_contained(updateOp.states(), use.get())) {
-            use.set(castForUpdateOps);
-            continue;
-          }
-        }
-        use.set(loadOp);
-      }
-    }
-    for (auto *op : allocsToErase)
-      op->erase();
-
-    // Replace the memory ops with the corresponding GEP and cast operations.
-    for (auto [memOp, offset, bytesPerWord] : memoryOffsets) {
-      builder.setInsertionPoint(memOp);
-      auto wordType = builder.getIntegerType(bytesPerWord * 8);
-      auto offsetPtr = createOffsetPtr(memOp.getLoc(), wordType, offset);
-      Value cast =
-          builder
-              .create<UnrealizedConversionCastOp>(
-                  memOp.getLoc(), memOp.getType(), ValueRange{offsetPtr})
-              .getResult(0);
-      memoryAddressLimits[cast] = memOp.numWordsAttr();
-      memOp.replaceAllUsesWith(cast);
-      memOp.erase();
-    }
-  });
-
-  // Rewrite the memory access and state update ops.
-  SmallSetVector<Operation *, 8> castsToDrop;
-  auto pruneCasts = [&]() {
-    while (!castsToDrop.empty()) {
-      auto *op = castsToDrop.pop_back_val();
-      if (!op->use_empty())
-        continue;
-      for (auto operand : op->getOperands())
-        if (auto *def = operand.getDefiningOp())
-          castsToDrop.insert(def);
-      op->erase();
-    }
-  };
-
-  auto unwrapCastPointer = [&](Value state) {
-    // At this point all states must be realized as LLVM pointers cast
-    // back to the original type.
-    auto castOp = state.getDefiningOp<UnrealizedConversionCastOp>();
-    assert(castOp && castOp->getNumOperands() == 1 &&
-           "states must be unary casts");
-    castsToDrop.insert(castOp);
-    auto ptrValue = castOp->getOperand(0);
-    assert(ptrValue.getType().isa<LLVM::LLVMPointerType>() &&
-           "states must be LLVM pointers");
-    return ptrValue;
-  };
-
-  auto prepareMemoryAddress = [&](ImplicitLocOpBuilder &builder, Value memory,
-                                  Value address) {
-    auto zextAddrType = builder.getIntegerType(
-        address.getType().cast<IntegerType>().getWidth() + 1);
-    auto addr = builder.create<LLVM::ZExtOp>(zextAddrType, address);
-    auto addrLimit = builder.create<LLVM::ConstantOp>(
-        zextAddrType, memoryAddressLimits[memory]);
-    auto withinBounds =
-        builder.create<LLVM::ICmpOp>(LLVM::ICmpPredicate::ult, addr, addrLimit);
-    return std::make_pair(addr, withinBounds);
-  };
-
-  auto getAddressedMemoryPointer = [&](ImplicitLocOpBuilder &builder,
-                                       Value memory, Value address,
-                                       Type wordType) -> Value {
-    auto ptrValue = unwrapCastPointer(memory);
-    auto gepOp = builder.create<LLVM::GEPOp>(ptrValue.getType(), ptrValue,
-                                             ValueRange{address});
-    Type desiredPtrType = LLVM::LLVMPointerType::get(wordType);
-    if (gepOp.getType() == desiredPtrType)
-      return gepOp;
-    return builder.create<LLVM::BitcastOp>(desiredPtrType, gepOp);
-  };
-
-  modelOp.walk([&](Operation *op) {
-    if (auto updateOp = dyn_cast<UpdateStateOp>(op)) {
-      ImplicitLocOpBuilder builder(updateOp.getLoc(), updateOp);
-      for (auto [state, value] :
-           llvm::zip(updateOp.states(), updateOp.values())) {
-        auto ptrValue = unwrapCastPointer(state);
-        assert(
-            ptrValue.getType().cast<LLVM::LLVMPointerType>().getElementType() ==
-            value.getType());
-        builder.create<LLVM::StoreOp>(value, ptrValue);
-      }
-      updateOp.erase();
-      pruneCasts();
-      return;
-    }
-    if (auto readOp = dyn_cast<MemoryReadOp>(op)) {
-      ImplicitLocOpBuilder builder(readOp.getLoc(), readOp);
-      auto [addr, withinBounds] =
-          prepareMemoryAddress(builder, readOp.memory(), readOp.address());
-      auto memPtrValue = getAddressedMemoryPointer(builder, readOp.memory(),
-                                                   addr, readOp.getType());
-      auto lastPtrValue = memoryReadBuffers[readOp];
-      auto lastValue = builder.create<LLVM::LoadOp>(lastPtrValue);
-      auto zeroValue = builder.create<LLVM::ConstantOp>(
-          readOp.getType(), builder.getI64IntegerAttr(0));
-
-      // Only attempt to read the memory location if the address is in bounds.
-      // Otherwise produce a zero value (Verilator's interpretation of X).
-      auto ifOp = builder.create<scf::IfOp>(
-          readOp.getType(), withinBounds,
-          [&](OpBuilder &builder, Location loc) {
-            auto loadOp = builder.create<LLVM::LoadOp>(loc, memPtrValue);
-            builder.create<scf::YieldOp>(loc, ValueRange{loadOp});
-          },
-          [&](OpBuilder &builder, Location loc) {
-            builder.create<scf::YieldOp>(loc, ValueRange{zeroValue});
-          });
-
-      auto valueIfDisabled = zeroValue; // <-- MFC does this
-      // auto valueIfDisabled = lastValue; // <-- also an option
-      Value value = builder.create<LLVM::SelectOp>(
-          readOp.enable(), ifOp.getResult(0), valueIfDisabled);
-      builder.create<LLVM::StoreOp>(value, lastPtrValue);
-      readOp.replaceAllUsesWith(value);
-      readOp.erase();
-      pruneCasts();
-      return;
-    }
-    if (auto writeOp = dyn_cast<MemoryWriteOp>(op)) {
-      ImplicitLocOpBuilder builder(writeOp.getLoc(), writeOp);
-      auto [addr, withinBounds] =
-          prepareMemoryAddress(builder, writeOp.memory(), writeOp.address());
-      auto enable = builder.create<LLVM::AndOp>(writeOp.enable(), withinBounds);
-      auto ifOp = builder.create<scf::IfOp>(enable, false);
-      builder.setInsertionPointToStart(ifOp.thenBlock());
-      auto ptrValue = getAddressedMemoryPointer(builder, writeOp.memory(), addr,
-                                                writeOp.data().getType());
-      builder.create<LLVM::StoreOp>(writeOp.data(), ptrValue);
-      writeOp.erase();
-      pruneCasts();
-      return;
-    }
-  });
-
-  // At this point we should only have a single child allocation left -- the
-  // one for the entire model body. Expose this as a block argument on the
-  // model, to be converted to dedicated update functions.
-  assert(childAllocations.size() == 1 &&
-         "only model-wide allocations should be left");
-  assert(childAllocations.begin()->second.size() == 1 &&
-         "model should produce only one state placeholder");
-  auto [statePlaceholder, numBytes, stateInfos] =
-      childAllocations.begin()->second.back();
-  auto stateArg = modelOp.bodyBlock().addArgument(statePlaceholder.getType(),
-                                                  statePlaceholder.getLoc());
-  statePlaceholder.replaceAllUsesWith(stateArg);
-  statePlaceholder.getDefiningOp()->erase();
-
-  auto &modelInfo = modelInfos[modelOp];
-  modelInfo.numStateBytes = numBytes;
-  modelInfo.states.assign(stateInfos.begin(), stateInfos.end());
-
   return success();
 }
 

@@ -99,6 +99,21 @@ def SplitLoops : Pass<"split-arc-loops", "mlir::ModuleOp"> {
   let dependentDialects = ["arc::ArcDialect"];
 }
 
+def AllocateState : Pass<"arc-alloc-state", "arc::ModelOp"> {
+  let summary = "Allocate and layout the global simulation state";
+  let constructor = "createAllocateStatePass()";
+  let dependentDialects = ["arc::ArcDialect"];
+}
+
+def PrintStateInfo : Pass<"print-arc-state-info", "mlir::ModuleOp"> {
+  let summary = "Print the state storage layout in JSON format";
+  let constructor = "createPrintStateInfoPass()";
+  let options = [
+    Option<"stateFile", "state-file", "std::string", "",
+      "Emit file with state description">
+  ];
+}
+
 def LowerToLLVM : Pass<"lower-arc-to-llvm", "mlir::ModuleOp"> {
   let summary = "Lower state transfer arc representation to LLVM";
   let constructor = "createLowerToLLVMPass()";

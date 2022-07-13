@@ -77,7 +77,8 @@ void InferMemoriesPass::runOnOperation() {
 
     ImplicitLocOpBuilder builder(instOp.getLoc(), instOp);
     auto wordType = builder.getIntegerType(width);
-    auto memOp = builder.create<MemoryOp>(wordType, depth);
+    auto memType = MemoryType::get(&getContext(), depth, wordType, {});
+    auto memOp = builder.create<MemoryOp>(memType);
     if (!instOp.instanceName().empty())
       memOp->setAttr("name", instOp.instanceNameAttr());
 

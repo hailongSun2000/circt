@@ -10,6 +10,7 @@
 #define CIRCT_DIALECT_ARC_OPS_TD
 
 include "circt/Dialect/Arc/Dialect.td"
+include "circt/Dialect/Arc/Types.td"
 include "circt/Dialect/HW/HWTypes.td"
 include "circt/Dialect/SV/SVTypes.td"
 include "mlir/IR/FunctionInterfaces.td"
@@ -197,20 +198,23 @@ def ClockGateOp : ArcOp<"clock_gate", [NoSideEffect]> {
 
 def MemoryOp : ArcOp<"memory", [MemoryEffects<[MemAlloc]>]> {
   let summary = "Memory";
-  let arguments = (ins UI64Attr:$numWords);
-  let results = (outs AnyInteger:$memory);
+  let results = (outs MemoryType:$memory);
   let assemblyFormat = [{
-    $numWords `x` type($memory) attr-dict
+    type($memory) attr-dict
   }];
 }
 
+class MemoryAndDataTypesMatch<string mem, string data> : TypesMatchWith<
+  "memory and data types must match", mem, data,
+  "$_self.cast<MemoryType>().getWordType()">;
+
 def MemoryReadOp : ArcOp<"memory_read", [
   MemoryEffects<[MemRead]>,
-  TypesMatchWith<"memory and data types must match", "memory", "data", "$_self">
+  MemoryAndDataTypesMatch<"memory", "data">
 ]> {
   let summary = "Read word from memory";
   let arguments = (ins
-    AnyInteger:$memory,
+    MemoryType:$memory,
     AnyInteger:$address,
     I1:$clock,
     I1:$enable
@@ -224,11 +228,11 @@ def MemoryReadOp : ArcOp<"memory_read", [
 
 def MemoryWriteOp : ArcOp<"memory_write", [
   MemoryEffects<[MemWrite]>,
-  TypesMatchWith<"memory and data types must match", "memory", "data", "$_self">
+  MemoryAndDataTypesMatch<"memory", "data">
 ]> {
   let summary = "Write word to memory";
   let arguments = (ins
-    AnyInteger:$memory,
+    MemoryType:$memory,
     AnyInteger:$address,
     I1:$clock,
     I1:$enable,
@@ -267,9 +271,28 @@ def PassThroughOp : ArcOp<"passthrough", [NoTerminator]> {
 
 def AllocStateOp : ArcOp<"alloc_state", [MemoryEffects<[MemAlloc, MemRead]>]> {
   let summary = "Allocate internal state";
+  let arguments = (ins StorageType:$storage);
   let results = (outs Variadic<AnyInteger>:$states);
   let assemblyFormat = [{
-    attr-dict `:` type($states)
+    $storage attr-dict `:` functional-type($storage, $states)
+  }];
+}
+
+def AllocMemoryOp : ArcOp<"alloc_memory", [MemoryEffects<[MemAlloc]>]> {
+  let summary = "Allocate a memory";
+  let arguments = (ins StorageType:$storage);
+  let results = (outs MemoryType:$memory);
+  let assemblyFormat = [{
+    $storage attr-dict `:` functional-type($storage, $memory)
+  }];
+}
+
+def AllocStorageOp : ArcOp<"alloc_storage", [MemoryEffects<[MemAlloc]>]> {
+  let summary = "Allocate contiguous storage space from a larger storage space";
+  let arguments = (ins StorageType:$input, OptionalAttr<I32Attr>:$offset);
+  let results = (outs StorageType:$output);
+  let assemblyFormat = [{
+    $input (`,` $offset^)? attr-dict `:` functional-type($input, $output)
   }];
 }
 
@@ -291,18 +314,18 @@ def RootInputOp : ArcOp<"root_input", [
   DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
 ]> {
   let summary = "A root input";
-  let arguments = (ins StrAttr:$name);
+  let arguments = (ins StrAttr:$name, StorageType:$storage);
   let results = (outs AnyInteger:$state);
-  let assemblyFormat = [{ $name attr-dict `:` type($state) }];
+  let assemblyFormat = [{ $name `,` $storage attr-dict `:` functional-type($storage, $state) }];
 }
 
 def RootOutputOp : ArcOp<"root_output", [
   DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
 ]> {
   let summary = "A root output";
-  let arguments = (ins StrAttr:$name);
+  let arguments = (ins StrAttr:$name, StorageType:$storage);
   let results = (outs AnyInteger:$state);
-  let assemblyFormat = [{ $name attr-dict `:` type($state) }];
+  let assemblyFormat = [{ $name `,` $storage attr-dict `:` functional-type($storage, $state) }];
 }
 
 def ModelOp : ArcOp<"model", [RegionKindInterface, IsolatedFromAbove,

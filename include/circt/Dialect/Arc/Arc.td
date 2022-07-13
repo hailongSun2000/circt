@@ -13,6 +13,8 @@ include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/OpBase.td"
 
 include "circt/Dialect/Arc/Dialect.td"
+include "circt/Dialect/Arc/TypesImpl.td"
+include "circt/Dialect/Arc/Types.td"
 include "circt/Dialect/Arc/Ops.td"
 
 #endif // CIRCT_DIALECT_ARC_ARC_TD

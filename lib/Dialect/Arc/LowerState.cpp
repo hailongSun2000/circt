@@ -36,9 +36,14 @@ void LowerStatePass::runOnOperation() {
 }
 
 void LowerStatePass::runOnModule() {
+  auto *context = &getContext();
   clockTrees.clear();
   LLVM_DEBUG(llvm::dbgs() << "Lowering state in `" << moduleOp.moduleName()
                           << "`\n");
+
+  // Add the global state as an argument to the module's body block.
+  auto storage = moduleOp.getBodyBlock()->addArgument(
+      StorageType::get(context, {}), moduleOp.getLoc());
 
   // Lower states.
   for (auto &op : llvm::make_early_inc_range(*moduleOp.getBodyBlock())) {
@@ -59,7 +64,8 @@ void LowerStatePass::runOnModule() {
       }
       auto clockTree = getClockTree(stateOp.clock());
       ImplicitLocOpBuilder builder(stateOp.getLoc(), stateOp);
-      auto state = builder.create<AllocStateOp>(stateOp.getResultTypes());
+      auto state =
+          builder.create<AllocStateOp>(stateOp.getResultTypes(), storage);
       if (auto names = stateOp->getAttr("names"))
         state->setAttr("names", names);
       stateOp.replaceAllUsesWith(state);
@@ -72,6 +78,14 @@ void LowerStatePass::runOnModule() {
       builder.create<UpdateStateOp>(state.getResults(),
                                     newStateOp.getResults());
       stateOp.erase();
+      continue;
+    }
+    if (auto memOp = dyn_cast<MemoryOp>(&op)) {
+      ImplicitLocOpBuilder builder(memOp.getLoc(), memOp);
+      auto allocMemOp = builder.create<AllocMemoryOp>(memOp.getType(), storage,
+                                                      memOp->getAttrs());
+      memOp.replaceAllUsesWith(allocMemOp.getResult());
+      memOp.erase();
       continue;
     }
     if (auto memWriteOp = dyn_cast<MemoryWriteOp>(&op)) {
@@ -107,12 +121,16 @@ void LowerStatePass::runOnModule() {
   // Lower primary inputs.
   auto builder = OpBuilder::atBlockBegin(moduleOp.getBodyBlock());
   for (auto blockArg : moduleOp.getArguments()) {
+    if (blockArg == storage)
+      continue;
     auto value = builder.create<RootInputOp>(
         blockArg.getLoc(), blockArg.getType(),
-        moduleOp.argNames()[blockArg.getArgNumber()].cast<StringAttr>());
+        moduleOp.argNames()[blockArg.getArgNumber()].cast<StringAttr>(),
+        storage);
     blockArg.replaceAllUsesWith(value);
   }
-  moduleOp.getBodyBlock()->eraseArguments([](auto) { return true; });
+  moduleOp.getBodyBlock()->eraseArguments(
+      [](auto arg) { return !arg.getType().template isa<StorageType>(); });
 
   // Lower primary outputs.
   auto outputOp = cast<hw::OutputOp>(moduleOp.getBodyBlock()->getTerminator());
@@ -123,10 +141,9 @@ void LowerStatePass::runOnModule() {
     updateBuilder.setInsertionPointToEnd(&passThrough.bodyBlock());
     for (auto [value, name] :
          llvm::zip(outputOp.getOperands(), moduleOp.resultNames())) {
-      auto storage = builder.create<RootOutputOp>(
-          outputOp.getLoc(), value.getType(), name.cast<StringAttr>());
-      updateBuilder.create<UpdateStateOp>(ValueRange{storage},
-                                          ValueRange{value});
+      auto state = builder.create<RootOutputOp>(
+          outputOp.getLoc(), value.getType(), name.cast<StringAttr>(), storage);
+      updateBuilder.create<UpdateStateOp>(ValueRange{state}, ValueRange{value});
     }
   }
   outputOp->erase();
