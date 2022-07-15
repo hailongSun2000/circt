@@ -182,8 +182,27 @@ struct UpdateStateOpLowering : public OpConversionPattern<arc::UpdateStateOp> {
   LogicalResult
   matchAndRewrite(arc::UpdateStateOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    Value statsPtr;
+    for (auto alloca : op->getParentOfType<func::FuncOp>()
+                           .getBody()
+                           .front()
+                           .getOps<LLVM::AllocaOp>()) {
+      if (alloca->hasAttr("stats")) {
+        statsPtr = alloca;
+        break;
+      }
+    }
+    assert(statsPtr);
     for (auto [state, value] : llvm::zip(adaptor.states(), adaptor.values())) {
       auto ptr = state.getDefiningOp<LLVM::LoadOp>().getOperand();
+      auto oldValue = rewriter.create<LLVM::LoadOp>(op.getLoc(), ptr);
+      auto valuesMatch = rewriter.create<LLVM::ICmpOp>(
+          op.getLoc(), LLVM::ICmpPredicate::eq, value, oldValue);
+      auto valuesMatchExt = rewriter.create<LLVM::ZExtOp>(
+          op.getLoc(), rewriter.getI32Type(), valuesMatch);
+      Value stats = rewriter.create<LLVM::LoadOp>(op.getLoc(), statsPtr);
+      stats = rewriter.create<LLVM::AddOp>(op.getLoc(), stats, valuesMatchExt);
+      rewriter.create<LLVM::StoreOp>(op.getLoc(), stats, statsPtr);
       rewriter.create<LLVM::StoreOp>(op.getLoc(), value, ptr);
     }
     rewriter.eraseOp(op);
@@ -526,6 +545,20 @@ LogicalResult LowerToLLVMPass::isolateClockTree(Operation *clockTreeOp) {
   OpBuilder builder(clockTreeOp);
   builder.setInsertionPointToStart(block.get());
 
+  auto statsType = builder.getI32Type();
+  auto statsPtr = builder.create<LLVM::AllocaOp>(
+      clockTreeOp->getLoc(), LLVM::LLVMPointerType::get(statsType),
+      builder.create<LLVM::ConstantOp>(clockTreeOp->getLoc(),
+                                       builder.getI32Type(),
+                                       builder.getI32IntegerAttr(1)),
+      0);
+  builder.create<LLVM::StoreOp>(clockTreeOp->getLoc(),
+                                builder.create<LLVM::ConstantOp>(
+                                    clockTreeOp->getLoc(), builder.getI32Type(),
+                                    builder.getI32IntegerAttr(1)),
+                                statsPtr);
+  statsPtr->setAttr("stats", builder.getUnitAttr());
+
   SmallVector<Value> additionalInputs;
   SmallVector<Type> additionalInputTypes;
   DenseMap<Value, Value> valueMapping;
@@ -578,14 +611,16 @@ LogicalResult LowerToLLVMPass::isolateClockTree(Operation *clockTreeOp) {
   }
 
   // Create the function for the extracted clock tree.
-  builder.create<func::ReturnOp>(clockTreeOp->getLoc());
+  Value statsValue =
+      builder.create<LLVM::LoadOp>(clockTreeOp->getLoc(), statsPtr);
+  builder.create<func::ReturnOp>(clockTreeOp->getLoc(), statsValue);
   StringRef suffix =
       isa<PassThroughOp>(clockTreeOp) ? "_passthrough" : "_clock";
   StringRef funcName = globalNamespace.newName(modelOp.name() + suffix);
   builder.setInsertionPoint(modelOp);
   auto funcOp = builder.create<func::FuncOp>(
       clockTreeOp->getLoc(), funcName,
-      builder.getFunctionType(additionalInputTypes, {}));
+      builder.getFunctionType(additionalInputTypes, {statsType}));
   funcOp.getBody().push_back(block.release());
   LLVM_DEBUG(llvm::dbgs() << "  - Created function `" << funcName << "`\n");
 
