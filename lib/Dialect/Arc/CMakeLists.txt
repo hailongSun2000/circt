@@ -7,6 +7,7 @@ add_circt_dialect_library(CIRCTArc
   InferMemories.cpp
   InlineModules.cpp
   InlineArcInputs.cpp
+  MakeLookupTables.cpp
   LowerState.cpp
   LowerToLLVM.cpp
   Ops.cpp

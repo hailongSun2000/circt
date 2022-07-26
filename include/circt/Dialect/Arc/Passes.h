@@ -26,6 +26,7 @@ std::unique_ptr<mlir::Pass> createInlineArcInputsPass();
 std::unique_ptr<mlir::Pass> createDedupPass();
 std::unique_ptr<mlir::Pass> createDumpArcGraphPass();
 std::unique_ptr<mlir::Pass> createPrintArcInfoPass();
+std::unique_ptr<mlir::Pass> createMakeLookupTablesPass();
 std::unique_ptr<mlir::Pass> createLowerStatePass();
 std::unique_ptr<mlir::Pass> createScheduleModelsPass();
 std::unique_ptr<mlir::Pass> createSplitLoopsPass();

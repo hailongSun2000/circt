@@ -87,6 +87,12 @@ def PrintArcInfo : Pass<"print-arc-info", "mlir::ModuleOp"> {
   let dependentDialects = ["arc::ArcDialect"];
 }
 
+def MakeLookupTables : Pass<"arc-lookup-tables", "mlir::ModuleOp"> {
+  let summary = "Transform appropriate arc logic into lookup tables";
+  let constructor = "createMakeLookupTablesPass()";
+  let dependentDialects = ["arc::ArcDialect"];
+}
+
 def LowerState : Pass<"arc-lower-state", "mlir::ModuleOp"> {
   let summary = "Split state into read and write ops grouped by clock tree";
   let constructor = "createLowerStatePass()";
