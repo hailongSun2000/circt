@@ -133,8 +133,18 @@ void MakeLookupTablesPass::runOnDefine() {
       auto arr = b.create<hw::ArrayCreateOp>(ArrayType::get(op.getType(), insize), vals);
       Value lookup = b.create<hw::ArrayGetOp>(arr, inconcat);
       op.replaceAllUsesWith(lookup);
+      // TODO: remove all other ops in the arc
     }
   }
+
+  // auto ops = defineOp.bodyBlock().getOperations();
+  // for (auto op : ops) {
+  //   TypeSwitch<Operation *>(op) {
+  //     .Case([&](hw::ArrayCreateOp) {
+  //
+  //     })
+  //   }
+  // }
 }
 
 namespace circt {
