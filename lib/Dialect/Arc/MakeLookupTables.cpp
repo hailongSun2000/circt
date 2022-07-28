@@ -10,6 +10,7 @@
 #include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 #define DEBUG_TYPE "arc-lookup-tables"
 
@@ -39,6 +40,16 @@ struct MakeLookupTablesPass : public MakeLookupTablesBase<MakeLookupTablesPass> 
 };
 } // namespace
 
+static inline uint32_t bits_mask(uint32_t nbits) {
+    if (nbits == 32)
+        return ~0;
+    return (1 << nbits) - 1;
+}
+
+static inline uint32_t bits_get(uint32_t x, uint32_t lb, uint32_t ub) {
+    return (x >> lb) & bits_mask(ub - lb + 1);
+}
+
 void MakeLookupTablesPass::runOnOperation() {
   auto module = getOperation();
   for (auto op : llvm::make_early_inc_range(module.getOps<DefineOp>())) {
@@ -58,16 +69,24 @@ void MakeLookupTablesPass::runOnDefine() {
   unsigned outvars = 0;
 
   // inputs
+  bool noninteger = false;
   auto types = defineOp.getArgumentTypes();
   for (auto &t : types) {
     invars++;
     if (auto i = t.dyn_cast<IntegerType>()) {
       inbits += i.getWidth();
+    } else {
+      noninteger = true;
     }
   }
+  if (noninteger) {
+    // only make lookup tables if all inputs are integers
+    return;
+  }
   // outputs
-  auto outs = defineOp.getOps<arc::OutputOp>();
-  for (auto op : llvm::make_early_inc_range(outs)) {
+  arc::OutputOp outputOp;
+  for (auto op : llvm::make_early_inc_range(defineOp.getOps<arc::OutputOp>())) {
+    outputOp = op;
     opcount--; // don't count output ops
     auto types = op.getOperandTypes();
     for (auto t : types) {
@@ -113,38 +132,51 @@ void MakeLookupTablesPass::runOnDefine() {
 
   LLVM_DEBUG(llvm::dbgs() << "creating table of size " << space << "\n");
 
+  SmallVector<Operation*, 64> origBody;
+  for (auto &op : defineOp.bodyBlock()) {
+    if (isa<arc::OutputOp>(op)) {
+      continue;
+    }
+    origBody.push_back(&op);
+  }
+
   auto b = ImplicitLocOpBuilder::atBlockBegin(defineOp.getLoc(), &defineOp.bodyBlock());
 
   auto ins = defineOp.getArguments();
   Value inconcat = ins[0];
   for (size_t i = 1; i < ins.size(); i++) {
-    inconcat = b.create<comb::ConcatOp>(inconcat, ins[i]);
+    inconcat = b.create<comb::ConcatOp>(ins[i], inconcat);
   }
 
-  for (auto out : llvm::make_early_inc_range(outs)) {
-    for (auto op : out.getOperands()) {
-      SmallVector<Value, 64> vals;
-      for (uint32_t i = 0; i < (1U << inbits); i++) {
-        // evaluate op when the inputs are 'i'
-        // put that value into vals
-        // TODO
-        vals.push_back(b.create<ConstantOp>(op.getType(), 0));
+  SmallVector<Value, 64> lookups;
+  for (auto op : outputOp.getOperands()) {
+    SmallVector<Value, 64> outtbl;
+    for (uint32_t i = 0; i < (1U << inbits); i++) {
+      SmallVector<APInt, 64> concreteIns;
+      unsigned bits = 0;
+      for (auto t : defineOp.getArgumentTypes()) {
+        auto w = t.dyn_cast<IntegerType>().getWidth();
+        concreteIns.push_back(APInt(w, bits_get(i, bits, bits+w)));
+        bits += w;
       }
-      auto arr = b.create<hw::ArrayCreateOp>(ArrayType::get(op.getType(), insize), vals);
-      Value lookup = b.create<hw::ArrayGetOp>(arr, inconcat);
-      op.replaceAllUsesWith(lookup);
-      // TODO: remove all other ops in the arc
+      // evaluate op when the inputs are 'i'
+      // put that value into outtbl
+      // TODO
+      outtbl.push_back(b.create<ConstantOp>(op.getType(), 0));
     }
+    auto arr = b.create<hw::ArrayCreateOp>(ArrayType::get(op.getType(), insize), outtbl);
+    lookups.push_back(b.create<hw::ArrayGetOp>(arr, inconcat));
   }
 
-  // auto ops = defineOp.bodyBlock().getOperations();
-  // for (auto op : ops) {
-  //   TypeSwitch<Operation *>(op) {
-  //     .Case([&](hw::ArrayCreateOp) {
-  //
-  //     })
-  //   }
-  // }
+  unsigned i = 0;
+  for (auto op : outputOp.getOperands()) {
+    op.replaceAllUsesWith(lookups[i]);
+    i++;
+  }
+  for (auto *op : origBody) {
+    op->dropAllUses();
+    op->erase();
+  }
 }
 
 namespace circt {
