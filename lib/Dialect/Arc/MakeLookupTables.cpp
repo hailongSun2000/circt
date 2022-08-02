@@ -98,7 +98,7 @@ void MakeLookupTablesPass::runOnDefine() {
   }
   LLVM_DEBUG(llvm::dbgs() << "inbits: " << inbits << ", outbits: " << outbits << ", num ops: " << opcount << "\n");
 
-  if (inbits > 8 || outbits > 8) {
+  if (inbits > 12 || outbits > 12) {
     LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large" << "\n");
     return;
   }
@@ -156,7 +156,7 @@ void MakeLookupTablesPass::runOnDefine() {
       unsigned bits = 0;
       for (auto arg : defineOp.getArguments()) {
         auto w = arg.getType().dyn_cast<IntegerType>().getWidth();
-        vals[arg] = b.getIntegerAttr(arg.getType(), bits_get(i, bits, bits+w));
+        vals[arg] = b.getIntegerAttr(arg.getType(), bits_get(i, bits, bits+w-1));
         bits += w;
       }
       for (auto *operation : origBody) {
