@@ -98,7 +98,7 @@ void MakeLookupTablesPass::runOnDefine() {
   }
   LLVM_DEBUG(llvm::dbgs() << "inbits: " << inbits << ", outbits: " << outbits << ", num ops: " << opcount << "\n");
 
-  if (inbits > 28 || outbits > 28) {
+  if (inbits > 8 || outbits > 8) {
     LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large" << "\n");
     return;
   }
@@ -107,10 +107,10 @@ void MakeLookupTablesPass::runOnDefine() {
   const unsigned space = insize * outbits;
   const unsigned time = std::max<unsigned>(opcount * TABLE_BYTES_PER_INST, 1);
 
-  if (opcount < TABLE_MIN_NODE_COUNT) {
-    LLVM_DEBUG(llvm::dbgs() << "no table created: too few nodes involved" << "\n");
-    return;
-  }
+  // if (opcount < TABLE_MIN_NODE_COUNT) {
+  //   LLVM_DEBUG(llvm::dbgs() << "no table created: too few nodes involved" << "\n");
+  //   return;
+  // }
   if (space > TABLE_MAX_BYTES) {
     LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large" << "\n");
     return;
@@ -152,17 +152,37 @@ void MakeLookupTablesPass::runOnDefine() {
   for (auto op : outputOp.getOperands()) {
     SmallVector<Value, 64> outtbl;
     for (uint32_t i = 0; i < (1U << inbits); i++) {
-      SmallVector<APInt, 64> concreteIns;
+      DenseMap<Value, Attribute> vals;
       unsigned bits = 0;
-      for (auto t : defineOp.getArgumentTypes()) {
-        auto w = t.dyn_cast<IntegerType>().getWidth();
-        concreteIns.push_back(APInt(w, bits_get(i, bits, bits+w)));
+      for (auto arg : defineOp.getArguments()) {
+        auto w = arg.getType().dyn_cast<IntegerType>().getWidth();
+        vals[arg] = b.getIntegerAttr(arg.getType(), bits_get(i, bits, bits+w));
         bits += w;
+      }
+      for (auto *operation : origBody) {
+        std::vector<Attribute> constants;
+        for (auto operand : operation->getOperands()) {
+          constants.push_back(vals[operand]);
+        }
+        ArrayRef<Attribute> attrs = constants;
+        SmallVector<OpFoldResult, 8> resultAttrs;
+        if (failed(operation->fold(attrs, resultAttrs)))
+          signalPassFailure();
+        unsigned j = 0;
+        for (auto result : operation->getResults()) {
+          if (Attribute foldAttr = resultAttrs[j].dyn_cast<Attribute>()) {
+            vals[result] = foldAttr;
+          } else if (Value foldVal = resultAttrs[j].dyn_cast<Value>()) {
+            vals[result] = vals[foldVal];
+          }
+          j++;
+        }
       }
       // evaluate op when the inputs are 'i'
       // put that value into outtbl
       // TODO
-      outtbl.push_back(b.create<ConstantOp>(op.getType(), 0));
+      outtbl.push_back(b.create<ConstantOp>(op.getType(), vals[op].dyn_cast<Attribute>().dyn_cast<IntegerAttr>().getInt()));
+      // outtbl.push_back(b.create<ConstantOp>(op.getType(), 0));
     }
     auto arr = b.create<hw::ArrayCreateOp>(ArrayType::get(op.getType(), insize), outtbl);
     lookups.push_back(b.create<hw::ArrayGetOp>(arr, inconcat));
@@ -170,13 +190,17 @@ void MakeLookupTablesPass::runOnDefine() {
 
   unsigned i = 0;
   for (auto op : outputOp.getOperands()) {
-    op.replaceAllUsesWith(lookups[i]);
+    op.replaceUsesWithIf(lookups[i], [&](OpOperand &use) {
+        return use.getOwner() == outputOp;
+    });
     i++;
   }
   for (auto *op : origBody) {
     op->dropAllUses();
     op->erase();
   }
+
+  defineOp.dump();
 }
 
 namespace circt {
