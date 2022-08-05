@@ -154,7 +154,7 @@ void MakeLookupTablesPass::runOnDefine() {
     for (uint32_t i = 0; i < (1U << inbits); i++) {
       DenseMap<Value, Attribute> vals;
       unsigned bits = 0;
-      for (auto arg : defineOp.getArguments()) {
+      for (auto arg : ins) {
         auto w = arg.getType().dyn_cast<IntegerType>().getWidth();
         vals[arg] = b.getIntegerAttr(arg.getType(), bits_get(i, bits, bits+w-1));
         bits += w;
@@ -199,8 +199,6 @@ void MakeLookupTablesPass::runOnDefine() {
     op->dropAllUses();
     op->erase();
   }
-
-  defineOp.dump();
 }
 
 namespace circt {
