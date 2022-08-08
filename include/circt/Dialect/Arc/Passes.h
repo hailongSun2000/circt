@@ -22,6 +22,7 @@ std::unique_ptr<mlir::Pass> createRegToArcPass();
 std::unique_ptr<mlir::Pass> createInferMemoriesPass();
 std::unique_ptr<mlir::Pass> createConvertToArcsPass();
 std::unique_ptr<mlir::Pass> createInlineModulesPass();
+std::unique_ptr<mlir::Pass> createInlineArcInputsPass();
 std::unique_ptr<mlir::Pass> createDedupPass();
 std::unique_ptr<mlir::Pass> createDumpArcGraphPass();
 std::unique_ptr<mlir::Pass> createPrintArcInfoPass();

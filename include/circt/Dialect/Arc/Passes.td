@@ -58,6 +58,12 @@ def InlineModules : Pass<"arc-inline-modules", "mlir::ModuleOp"> {
   let constructor = "createInlineModulesPass()";
 }
 
+def InlineArcInputs : Pass<"arc-inline-inputs", "mlir::ModuleOp"> {
+  let summary = "Inline constant inputs into arcs";
+  let constructor = "createInlineArcInputsPass()";
+  let dependentDialects = ["arc::ArcDialect"];
+}
+
 def Dedup : Pass<"arc-dedup", "mlir::ModuleOp"> {
   let summary = "Deduplicate identical arc definitions";
   let constructor = "createDedupPass()";

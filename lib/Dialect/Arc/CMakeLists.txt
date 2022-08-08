@@ -6,6 +6,7 @@ add_circt_dialect_library(CIRCTArc
   DumpArcGraph.cpp
   InferMemories.cpp
   InlineModules.cpp
+  InlineArcInputs.cpp
   LowerState.cpp
   LowerToLLVM.cpp
   Ops.cpp
