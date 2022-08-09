@@ -106,7 +106,13 @@ void InlineArcInputsPass::runOnOperation() {
 
         builder.setInsertionPoint(stateOp);
         // Create a new stateOp with the reduced input vector.
-        auto newStateOp = builder.create<StateOp>(stateOp->getLoc(), defOp, stateOp.clock(), stateOp.enable(), stateOp.latency(), inputs);
+        auto newStateOp = builder.create<StateOp>(stateOp.getLoc(), stateOp.arcAttr(), stateOp.getResultTypes(), stateOp.clock(), stateOp.enable(), stateOp.latency(), inputs);
+        ArrayRef<Attribute> oldNames;
+        if (auto names = stateOp->getAttrOfType<ArrayAttr>("names"))
+          oldNames = names.getValue();
+        if (!oldNames.empty()) {
+          newStateOp->setAttr("names", builder.getArrayAttr(oldNames));
+        }
         stateOp.replaceAllUsesWith(newStateOp);
         stateOp.erase();
       }

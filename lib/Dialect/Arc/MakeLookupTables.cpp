@@ -151,7 +151,7 @@ void MakeLookupTablesPass::runOnDefine() {
   SmallVector<Value, 64> lookups;
   for (auto op : outputOp.getOperands()) {
     SmallVector<Value, 64> outtbl;
-    for (uint32_t i = 0; i < (1U << inbits); i++) {
+    for (int i = (1U << inbits) - 1; i >= 0; i--) {
       DenseMap<Value, Attribute> vals;
       unsigned bits = 0;
       for (auto arg : ins) {
