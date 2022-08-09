@@ -2410,7 +2410,8 @@ struct ArrayGetOpConversion : public ConvertOpToLLVMPattern<hw::ArrayGetOp> {
     Value arrPtr;
     // In this case the array was loaded from an existing address, so we can
     // just grab that address instead of reallocating the array on the stack.
-    if (auto load = dyn_cast<LLVM::LoadOp>(adaptor.input().getDefiningOp())) {
+    if (auto load =
+            dyn_cast_or_null<LLVM::LoadOp>(adaptor.input().getDefiningOp())) {
       arrPtr = load.getAddr();
     } else {
       auto inputTy = typeConverter->convertType(op.input().getType());
