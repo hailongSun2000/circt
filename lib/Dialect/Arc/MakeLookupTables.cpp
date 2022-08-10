@@ -18,36 +18,28 @@ using namespace circt;
 using namespace arc;
 using namespace hw;
 
-// from https://github.com/verilator/verilator/blob/master/src/V3Table.cpp
-// 1MB is max table size (better be lots of instructs to be worth it!)
-static constexpr int TABLE_MAX_BYTES = 1 * 1024 * 1024;
-// 64MB is close to max memory of some systems (256MB or so), so don't get out of control
-static constexpr int TABLE_TOTAL_BYTES = 64 * 1024 * 1024;
-// Worth no more than 8 bytes of data to replace an instruction
-static constexpr int TABLE_SPACE_TIME_MULT = 8;
-// If < 32 instructions, not worth the effort
-// static constexpr int TABLE_MIN_NODE_COUNT = 32;
-static constexpr int TABLE_MIN_NODE_COUNT = 5;
-// Assume an instruction is 4 bytes
-static constexpr int TABLE_BYTES_PER_INST = 4;
-
 namespace {
+
+static constexpr int tableMinOpCount = 5;
+static constexpr int tableMaxBytes = 32;
+static constexpr int tableTotalBytes = 1024 * 16;
+
 struct MakeLookupTablesPass : public MakeLookupTablesBase<MakeLookupTablesPass> {
   void runOnOperation() override;
   void runOnDefine();
   DefineOp defineOp;
-  size_t totalBytes;
+  size_t totalBytes = 0;
 };
 } // namespace
 
-static inline uint32_t bits_mask(uint32_t nbits) {
+static inline uint32_t bitsMask(uint32_t nbits) {
     if (nbits == 32)
         return ~0;
     return (1 << nbits) - 1;
 }
 
-static inline uint32_t bits_get(uint32_t x, uint32_t lb, uint32_t ub) {
-    return (x >> lb) & bits_mask(ub - lb + 1);
+static inline uint32_t bitsGet(uint32_t x, uint32_t lb, uint32_t ub) {
+    return (x >> lb) & bitsMask(ub - lb + 1);
 }
 
 void MakeLookupTablesPass::runOnOperation() {
@@ -96,30 +88,25 @@ void MakeLookupTablesPass::runOnDefine() {
       }
     }
   }
-  LLVM_DEBUG(llvm::dbgs() << "inbits: " << inbits << ", outbits: " << outbits << ", num ops: " << opcount << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "lookup table analysis: inbits: " << inbits << ", outbits: " << outbits << ", num ops: " << opcount << "\n");
 
-  if (inbits > 12 || outbits > 12) {
+  if (inbits > 26 || outbits > 26) {
     LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large" << "\n");
     return;
   }
 
-  unsigned insize = 1 << inbits;
-  const unsigned space = insize * outbits;
-  const unsigned time = std::max<unsigned>(opcount * TABLE_BYTES_PER_INST, 1);
+  unsigned insize = 1U << inbits;
+  const unsigned space = insize * outbits / 8;
 
-  // if (opcount < TABLE_MIN_NODE_COUNT) {
-  //   LLVM_DEBUG(llvm::dbgs() << "no table created: too few nodes involved" << "\n");
-  //   return;
-  // }
-  if (space > TABLE_MAX_BYTES) {
+  if (opcount < tableMinOpCount) {
+    LLVM_DEBUG(llvm::dbgs() << "no table created: too few nodes involved" << "\n");
+    return;
+  }
+  if (space > tableMaxBytes) {
     LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large" << "\n");
     return;
   }
-  // if (space > time * TABLE_SPACE_TIME_MULT) {
-  //   LLVM_DEBUG(llvm::dbgs() << "no table created: table has bad tradeoff" << "\n");
-  //   return;
-  // }
-  if (totalBytes > TABLE_TOTAL_BYTES) {
+  if (totalBytes > tableTotalBytes) {
     LLVM_DEBUG(llvm::dbgs() << "no table created: out of table memory" << "\n");
     return;
   }
@@ -130,7 +117,7 @@ void MakeLookupTablesPass::runOnDefine() {
 
   totalBytes += space;
 
-  LLVM_DEBUG(llvm::dbgs() << "creating table of size " << space << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "creating table of size " << space << ", total bytes: " << totalBytes << "\n");
 
   SmallVector<Operation*, 64> origBody;
   for (auto &op : defineOp.bodyBlock()) {
@@ -156,7 +143,7 @@ void MakeLookupTablesPass::runOnDefine() {
       unsigned bits = 0;
       for (auto arg : ins) {
         auto w = arg.getType().dyn_cast<IntegerType>().getWidth();
-        vals[arg] = b.getIntegerAttr(arg.getType(), bits_get(i, bits, bits+w-1));
+        vals[arg] = b.getIntegerAttr(arg.getType(), bitsGet(i, bits, bits+w-1));
         bits += w;
       }
       for (auto *operation : origBody) {
@@ -165,24 +152,22 @@ void MakeLookupTablesPass::runOnDefine() {
           constants.push_back(vals[operand]);
         }
         ArrayRef<Attribute> attrs = constants;
-        SmallVector<OpFoldResult, 8> resultAttrs;
-        if (failed(operation->fold(attrs, resultAttrs)))
-          signalPassFailure();
+        SmallVector<OpFoldResult, 8> results;
+        if (failed(operation->fold(attrs, results))) {
+          LLVM_DEBUG(llvm::dbgs() << "no table created: computation failed" << "\n");
+          return;
+        }
         unsigned j = 0;
         for (auto result : operation->getResults()) {
-          if (Attribute foldAttr = resultAttrs[j].dyn_cast<Attribute>()) {
+          if (Attribute foldAttr = results[j].dyn_cast<Attribute>()) {
             vals[result] = foldAttr;
-          } else if (Value foldVal = resultAttrs[j].dyn_cast<Value>()) {
+          } else if (Value foldVal = results[j].dyn_cast<Value>()) {
             vals[result] = vals[foldVal];
           }
           j++;
         }
       }
-      // evaluate op when the inputs are 'i'
-      // put that value into outtbl
-      // TODO
       outtbl.push_back(b.create<ConstantOp>(op.getType(), vals[op].dyn_cast<Attribute>().dyn_cast<IntegerAttr>().getInt()));
-      // outtbl.push_back(b.create<ConstantOp>(op.getType(), 0));
     }
     auto arr = b.create<hw::ArrayCreateOp>(ArrayType::get(op.getType(), insize), outtbl);
     lookups.push_back(b.create<hw::ArrayGetOp>(arr, inconcat));

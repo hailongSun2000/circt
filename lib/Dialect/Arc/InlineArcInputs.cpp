@@ -23,18 +23,9 @@ struct InlineArcInputsPass : public InlineArcInputsBase<InlineArcInputsPass> {
 };
 } // namespace
 
-struct ConstArg {
-  unsigned i;
-  ConstantOp op;
-
-  bool operator==(const ConstArg &a) const {
-    return a.i != i;
-  }
-};
-
 void InlineArcInputsPass::runOnOperation() {
   // For each arc, this map tracks which arguments are constant.
-  DenseMap<StringRef, SmallVector<ConstArg>> arcConstArgs;
+  DenseMap<StringRef, SmallVector<ConstantOp>> arcConstArgs;
   // All stateOps that use a particular arc.
   DenseMap<StringRef, SmallVector<StateOp>> arcUses;
 
@@ -42,19 +33,28 @@ void InlineArcInputsPass::runOnOperation() {
   for (auto moduleOp : llvm::make_early_inc_range(module.getOps<HWModuleOp>())) {
     for (auto op : moduleOp.getBody().getOps<StateOp>()) {
       // Find all stateOps that use constant operands.
-      SmallVector<ConstArg> constArgs;
       auto ops = op.operands();
+      SmallVector<ConstantOp> constArgs(ops.size());
       for (unsigned i = 0; i < ops.size(); i++) {
         auto arg = ops[i];
         if (auto c = dyn_cast_or_null<ConstantOp>(arg.getDefiningOp()))
-          constArgs.push_back({i, c});
+          constArgs[i] = c;
       }
       auto arc = op.arc();
       arcUses[arc].push_back(op);
-      if (arcConstArgs.count(arc) == 0)
+      if (arcConstArgs.count(arc) == 0) {
         arcConstArgs[arc] = constArgs; // make an entry for this arc
-      else if (arcConstArgs[arc] != constArgs)
-        arcConstArgs.erase(arc); // remove this arc if the constants are not equal to a previous use
+      } else {
+        SmallVector<ConstantOp> merged(ops.size());
+        auto args = arcConstArgs[arc];
+        for (unsigned i = 0; i < args.size(); i++) {
+          if (args[i] == constArgs[i])
+            merged[i] = constArgs[i];
+          else
+            merged[i] = nullptr;
+        }
+        arcConstArgs[arc] = merged;
+      }
     }
   }
 
@@ -66,15 +66,18 @@ void InlineArcInputsPass::runOnOperation() {
       auto args = arcConstArgs[defOp.getName()];
       DenseSet<unsigned> deletedArgs;
       SmallVector<unsigned> toDelete;
-      for (auto arg : args) {
+      for (unsigned i = 0; i < args.size(); i++) {
+        if (args[i] == nullptr)
+          continue;
+        auto arg = args[i];
         // Put the constant into the define's body.
-        auto* newOp = arg.op->clone();
+        auto* newOp = arg->clone();
         builder.insert(newOp);
-        auto blockArg = defOp.getArgument(arg.i);
+        auto blockArg = defOp.getArgument(i);
         blockArg.replaceAllUsesWith(newOp->getResult(0));
         // Register the arg for deletion from the function signature.
-        deletedArgs.insert(arg.i);
-        toDelete.push_back(arg.i);
+        deletedArgs.insert(i);
+        toDelete.push_back(i);
       }
       defOp.bodyBlock().eraseArguments(toDelete);
 
@@ -99,8 +102,10 @@ void InlineArcInputsPass::runOnOperation() {
         SmallVector<Value> inputs;
         auto ops = stateOp.operands();
         for (unsigned i = 0; i < ops.size(); i++) {
-          if (deletedArgs.contains(i))
+          if (deletedArgs.contains(i)) {
+            assert(isa<ConstantOp>(ops[i].getDefiningOp()));
             continue;
+          }
           inputs.push_back(ops[i]);
         }
 
