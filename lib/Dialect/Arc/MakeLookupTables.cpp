@@ -7,10 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetails.h"
-#include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "circt/Dialect/Comb/CombOps.h"
-#include "llvm/Support/Debug.h"
+#include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "arc-lookup-tables"
 
@@ -20,11 +20,12 @@ using namespace hw;
 
 namespace {
 
-static constexpr int tableMinOpCount = 5;
-static constexpr int tableMaxBytes = 32;
-static constexpr int tableTotalBytes = 1024 * 16;
+static constexpr int tableMinOpCount = 20;
+static constexpr int tableMaxBytes = 4096;
+static constexpr int tableTotalBytes = 1024 * 256;
 
-struct MakeLookupTablesPass : public MakeLookupTablesBase<MakeLookupTablesPass> {
+struct MakeLookupTablesPass
+    : public MakeLookupTablesBase<MakeLookupTablesPass> {
   void runOnOperation() override;
   void runOnDefine();
   DefineOp defineOp;
@@ -33,13 +34,13 @@ struct MakeLookupTablesPass : public MakeLookupTablesBase<MakeLookupTablesPass> 
 } // namespace
 
 static inline uint32_t bitsMask(uint32_t nbits) {
-    if (nbits == 32)
-        return ~0;
-    return (1 << nbits) - 1;
+  if (nbits == 32)
+    return ~0;
+  return (1 << nbits) - 1;
 }
 
 static inline uint32_t bitsGet(uint32_t x, uint32_t lb, uint32_t ub) {
-    return (x >> lb) & bitsMask(ub - lb + 1);
+  return (x >> lb) & bitsMask(ub - lb + 1);
 }
 
 void MakeLookupTablesPass::runOnOperation() {
@@ -75,6 +76,11 @@ void MakeLookupTablesPass::runOnDefine() {
     // only make lookup tables if all inputs are integers
     return;
   }
+  for (auto op :
+       llvm::make_early_inc_range(defineOp.getOps<hw::ConstantOp>())) {
+    (void)op;
+    opcount--; // don't count constant ops
+  }
   // outputs
   arc::OutputOp outputOp;
   for (auto op : llvm::make_early_inc_range(defineOp.getOps<arc::OutputOp>())) {
@@ -88,10 +94,13 @@ void MakeLookupTablesPass::runOnDefine() {
       }
     }
   }
-  LLVM_DEBUG(llvm::dbgs() << "lookup table analysis: inbits: " << inbits << ", outbits: " << outbits << ", num ops: " << opcount << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "lookup table analysis: inbits: " << inbits
+                          << ", outbits: " << outbits
+                          << ", num ops: " << opcount << "\n");
 
   if (inbits > 26 || outbits > 26) {
-    LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large" << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large"
+                            << "\n");
     return;
   }
 
@@ -99,27 +108,32 @@ void MakeLookupTablesPass::runOnDefine() {
   const unsigned space = insize * outbits / 8;
 
   if (opcount < tableMinOpCount) {
-    LLVM_DEBUG(llvm::dbgs() << "no table created: too few nodes involved" << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "no table created: too few nodes involved"
+                            << "\n");
     return;
   }
   if (space > tableMaxBytes) {
-    LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large" << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "no table created: table is too large"
+                            << "\n");
     return;
   }
   if (totalBytes > tableTotalBytes) {
-    LLVM_DEBUG(llvm::dbgs() << "no table created: out of table memory" << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "no table created: out of table memory"
+                            << "\n");
     return;
   }
   if (!outbits || !inbits) {
-    LLVM_DEBUG(llvm::dbgs() << "no table created: no outputs or no inputs" << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "no table created: no outputs or no inputs"
+                            << "\n");
     return;
   }
 
   totalBytes += space;
 
-  LLVM_DEBUG(llvm::dbgs() << "creating table of size " << space << ", total bytes: " << totalBytes << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "creating table of size " << space
+                          << ", total bytes: " << totalBytes << "\n");
 
-  SmallVector<Operation*, 64> origBody;
+  SmallVector<Operation *, 64> origBody;
   for (auto &op : defineOp.bodyBlock()) {
     if (isa<arc::OutputOp>(op)) {
       continue;
@@ -127,7 +141,8 @@ void MakeLookupTablesPass::runOnDefine() {
     origBody.push_back(&op);
   }
 
-  auto b = ImplicitLocOpBuilder::atBlockBegin(defineOp.getLoc(), &defineOp.bodyBlock());
+  auto b = ImplicitLocOpBuilder::atBlockBegin(defineOp.getLoc(),
+                                              &defineOp.bodyBlock());
 
   auto ins = defineOp.getArguments();
   Value inconcat = ins[0];
@@ -143,7 +158,8 @@ void MakeLookupTablesPass::runOnDefine() {
       unsigned bits = 0;
       for (auto arg : ins) {
         auto w = arg.getType().dyn_cast<IntegerType>().getWidth();
-        vals[arg] = b.getIntegerAttr(arg.getType(), bitsGet(i, bits, bits+w-1));
+        vals[arg] =
+            b.getIntegerAttr(arg.getType(), bitsGet(i, bits, bits + w - 1));
         bits += w;
       }
       for (auto *operation : origBody) {
@@ -154,7 +170,8 @@ void MakeLookupTablesPass::runOnDefine() {
         ArrayRef<Attribute> attrs = constants;
         SmallVector<OpFoldResult, 8> results;
         if (failed(operation->fold(attrs, results))) {
-          LLVM_DEBUG(llvm::dbgs() << "no table created: computation failed" << "\n");
+          LLVM_DEBUG(llvm::dbgs() << "no table created: computation failed"
+                                  << "\n");
           return;
         }
         unsigned j = 0;
@@ -167,17 +184,19 @@ void MakeLookupTablesPass::runOnDefine() {
           j++;
         }
       }
-      outtbl.push_back(b.create<ConstantOp>(op.getType(), vals[op].dyn_cast<Attribute>().dyn_cast<IntegerAttr>().getInt()));
+      outtbl.push_back(b.create<ConstantOp>(
+          op.getType(),
+          vals[op].dyn_cast<Attribute>().dyn_cast<IntegerAttr>().getInt()));
     }
-    auto arr = b.create<hw::ArrayCreateOp>(ArrayType::get(op.getType(), insize), outtbl);
+    auto arr = b.create<hw::ArrayCreateOp>(ArrayType::get(op.getType(), insize),
+                                           outtbl);
     lookups.push_back(b.create<hw::ArrayGetOp>(arr, inconcat));
   }
 
   unsigned i = 0;
   for (auto op : outputOp.getOperands()) {
-    op.replaceUsesWithIf(lookups[i], [&](OpOperand &use) {
-        return use.getOwner() == outputOp;
-    });
+    op.replaceUsesWithIf(
+        lookups[i], [&](OpOperand &use) { return use.getOwner() == outputOp; });
     i++;
   }
   for (auto *op : origBody) {
