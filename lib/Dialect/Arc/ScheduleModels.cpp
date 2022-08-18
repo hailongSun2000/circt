@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetails.h"
+#include "circt/Dialect/Arc/Ops.h"
 #include "circt/Support/Namespace.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Dominance.h"
@@ -53,6 +54,28 @@ void ScheduleModelsPass::runOnOperation() {
     modelOp = op;
     if (failed(runOnModel()))
       return signalPassFailure();
+  }
+}
+
+static bool usedInMultipleClocks(Operation *v) {
+  DenseSet<Operation*> parents;
+  for (auto *user : v->getUsers()) {
+    if (auto *clock = user->getParentOp()) {
+      parents.insert(clock);
+    }
+  }
+  return parents.size() > 1;
+}
+
+static void eagerSchedule(Operation *op, ImplicitLocOpBuilder builder, DenseSet<Operation*> &moved) {
+  for (auto operand : op->getOperands()) {
+    auto *parent = operand.getDefiningOp();
+    if (parent && !moved.contains(parent) && !usedInMultipleClocks(parent)) {
+      eagerSchedule(parent, builder, moved);
+      parent->remove();
+      builder.insert(parent);
+      moved.insert(parent);
+    }
   }
 }
 
@@ -238,6 +261,30 @@ LogicalResult ScheduleModelsPass::runOnModel() {
   });
   if (anyFailures)
     return failure();
+
+  LLVM_DEBUG(llvm::dbgs() << "Eager scheduling!!\n");
+
+  DenseSet<Operation*> moved;
+  SmallVector<Operation*> ops;
+  for (auto clock : modelOp.bodyBlock().getOps<ClockTreeOp>()) {
+    for (auto &op : clock.bodyBlock().getOperations()) {
+      if (isa<UpdateStateOp,MemoryWriteOp,MemoryReadOp,StateOp>(op)) {
+        ops.push_back(&op);
+      }
+    }
+  }
+  for (auto clock : modelOp.bodyBlock().getOps<PassThroughOp>()) {
+    for (auto &op : clock.bodyBlock().getOperations()) {
+      if (isa<UpdateStateOp,MemoryWriteOp,MemoryReadOp,StateOp>(op)) {
+        ops.push_back(&op);
+      }
+    }
+  }
+  for (auto *op : ops) {
+    ImplicitLocOpBuilder builder(op->getLoc(), op->getContext());
+    builder.setInsertionPoint(op);
+    eagerSchedule(op, builder, moved);
+  }
 
   return success();
 
