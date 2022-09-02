@@ -196,8 +196,8 @@ LogicalResult ScheduleModelsPass::runOnModel() {
   // the clock trees be independent pieces of work containing all the necessary
   // computation. Needless replication should be handled by factoring logic
   // common among multiple clock trees into a separate arc.
-  if (failed(replicateOpsIntoClockTrees()))
-    return failure();
+  // if (failed(replicateOpsIntoClockTrees()))
+  //   return failure();
 
   // Topologically sort operations.
   modelOp.walk([](Block *block) { sortTopologically(block); });
