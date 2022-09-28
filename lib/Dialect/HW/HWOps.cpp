@@ -492,7 +492,7 @@ static void modifyModuleArgs(
     ArrayRef<unsigned> removeArgs, ArrayRef<Attribute> oldArgNames,
     ArrayRef<Type> oldArgTypes, ArrayRef<Attribute> oldArgAttrs,
     SmallVector<Attribute> &newArgNames, SmallVector<Type> &newArgTypes,
-    SmallVector<Attribute> &newArgAttrs, Block *body = nullptr) {
+    SmallVector<Attribute> &newArgAttrs) {
 
 #ifndef NDEBUG
   // Check that the `insertArgs` and `removeArgs` indices are in ascending
@@ -515,10 +515,6 @@ static void modifyModuleArgs(
   auto exportPortAttrName = StringAttr::get(context, "hw.exportPort");
   auto emptyDictAttr = DictionaryAttr::get(context, {});
 
-  BitVector erasedIndices;
-  if (body)
-    erasedIndices.resize(oldArgCount + insertArgs.size());
-
   for (unsigned argIdx = 0, idx = 0; argIdx <= oldArgCount; ++argIdx, ++idx) {
     // Insert new ports at this position.
     while (!insertArgs.empty() && insertArgs[0].first == argIdx) {
@@ -535,8 +531,6 @@ static void modifyModuleArgs(
       newArgTypes.push_back(port.type);
       newArgAttrs.push_back(attr);
       insertArgs = insertArgs.drop_front();
-      if (body)
-        body->insertArgument(idx++, port.type, UnknownLoc::get(context));
     }
     if (argIdx == oldArgCount)
       break;
@@ -548,19 +542,13 @@ static void modifyModuleArgs(
       removed = true;
     }
 
-    if (removed) {
-      if (body)
-        erasedIndices.set(idx);
-    } else {
+    if (!removed) {
       newArgNames.push_back(oldArgNames[argIdx]);
       newArgTypes.push_back(oldArgTypes[argIdx]);
       newArgAttrs.push_back(oldArgAttrs.empty() ? emptyDictAttr
                                                 : oldArgAttrs[argIdx]);
     }
   }
-
-  if (body)
-    body->eraseArguments(erasedIndices);
 
   assert(newArgNames.size() == newArgCount);
   assert(newArgTypes.size() == newArgCount);
@@ -576,8 +564,7 @@ static void modifyModuleArgs(
 void hw::modifyModulePorts(
     Operation *op, ArrayRef<std::pair<unsigned, PortInfo>> insertInputs,
     ArrayRef<std::pair<unsigned, PortInfo>> insertOutputs,
-    ArrayRef<unsigned> removeInputs, ArrayRef<unsigned> removeOutputs,
-    Block *body) {
+    ArrayRef<unsigned> removeInputs, ArrayRef<unsigned> removeOutputs) {
   auto moduleOp = cast<mlir::FunctionOpInterface>(op);
 
   auto arrayOrEmpty = [](ArrayAttr attr) {
@@ -606,7 +593,7 @@ void hw::modifyModulePorts(
 
   modifyModuleArgs(moduleOp.getContext(), insertInputs, removeInputs,
                    oldArgNames, oldArgTypes, oldArgAttrs, newArgNames,
-                   newArgTypes, newArgAttrs, body);
+                   newArgTypes, newArgAttrs);
 
   modifyModuleArgs(moduleOp.getContext(), insertOutputs, removeOutputs,
                    oldResultNames, oldResultTypes, oldResultAttrs,
@@ -676,7 +663,7 @@ void HWModuleOp::modifyPorts(
     ArrayRef<std::pair<unsigned, PortInfo>> insertOutputs,
     ArrayRef<unsigned> eraseInputs, ArrayRef<unsigned> eraseOutputs) {
   hw::modifyModulePorts(*this, insertInputs, insertOutputs, eraseInputs,
-                        eraseOutputs, getBodyBlock());
+                        eraseOutputs);
 }
 
 /// Return the name to use for the Verilog module that we're referencing
