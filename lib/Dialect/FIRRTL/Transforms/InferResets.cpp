@@ -423,8 +423,8 @@ struct InferResetsPass : public InferResetsBase<InferResetsPass> {
   void traceResets(InstanceOp inst);
   void traceResets(Value dst, Value src, Location loc);
   void traceResets(Value value);
-  void traceResets(FIRRTLType dstType, Value dst, unsigned dstID,
-                   FIRRTLType srcType, Value src, unsigned srcID, Location loc);
+  void traceResets(Type dstType, Value dst, unsigned dstID, Type srcType,
+                   Value src, unsigned srcID, Location loc);
 
   LogicalResult inferAndUpdateResets();
   FailureOr<ResetKind> inferReset(ResetNetwork net);
@@ -829,15 +829,13 @@ void InferResetsPass::traceResets(InstanceOp inst) {
 /// Each drive involving a `ResetType` is recorded.
 void InferResetsPass::traceResets(Value dst, Value src, Location loc) {
   // Analyze the actual connection.
-  auto dstType = dst.getType().cast<FIRRTLType>();
-  auto srcType = src.getType().cast<FIRRTLType>();
-  traceResets(dstType, dst, 0, srcType, src, 0, loc);
+  traceResets(dst.getType(), dst, 0, src.getType(), src, 0, loc);
 }
 
 /// Analyze a connect of one (possibly aggregate) value to another.
 /// Each drive involving a `ResetType` is recorded.
-void InferResetsPass::traceResets(FIRRTLType dstType, Value dst, unsigned dstID,
-                                  FIRRTLType srcType, Value src, unsigned srcID,
+void InferResetsPass::traceResets(Type dstType, Value dst, unsigned dstID,
+                                  Type srcType, Value src, unsigned srcID,
                                   Location loc) {
   if (auto dstBundle = dstType.dyn_cast<BundleType>()) {
     auto srcBundle = srcType.cast<BundleType>();
@@ -890,10 +888,11 @@ void InferResetsPass::traceResets(FIRRTLType dstType, Value dst, unsigned dstID,
                        srcID, loc);
   }
 
-  auto dstBase = dstType.cast<FIRRTLBaseType>();
-  auto srcBase = srcType.cast<FIRRTLBaseType>();
-  if (dstBase.isGround()) {
-    if (dstBase.isa<ResetType>() || srcBase.isa<ResetType>()) {
+  auto dstBase = dstType.dyn_cast<FIRRTLBaseType>();
+  auto srcBase = srcType.dyn_cast<FIRRTLBaseType>();
+  if (!dstBase || dstBase.isGround()) {
+    if ((dstBase && dstBase.isa<ResetType>()) ||
+        (srcBase && srcBase.isa<ResetType>())) {
       FieldRef dstField(dst, dstID);
       FieldRef srcField(src, srcID);
       LLVM_DEBUG(llvm::dbgs()
