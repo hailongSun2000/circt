@@ -30,20 +30,12 @@ using mlir::TypeStorageAllocator;
 // Generated logic
 //===----------------------------------------------------------------------===//
 
-#define GET_TYPEDEF_CLASSES
-#include "circt/Dialect/Moore/MooreTypes.cpp.inc"
-
 void MooreDialect::registerTypes() {
   addTypes<VoidType, StringType, ChandleType, EventType, IntType, RealType,
            PackedNamedType, PackedRefType, UnpackedNamedType, UnpackedRefType,
            PackedUnsizedDim, PackedRangeDim, UnpackedUnsizedDim,
            UnpackedArrayDim, UnpackedRangeDim, UnpackedAssocDim,
            UnpackedQueueDim, EnumType, PackedStructType, UnpackedStructType>();
-
-  addTypes<
-#define GET_TYPEDEF_LIST
-#include "circt/Dialect/Moore/MooreTypes.cpp.inc"
-      >();
 }
 
 //===----------------------------------------------------------------------===//

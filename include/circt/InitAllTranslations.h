@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "circt/Conversion/ImportVerilog.h"
 #include "circt/Dialect/Arc/ModelInfoExport.h"
 #include "circt/Dialect/Calyx/CalyxEmitter.h"
 #include "circt/Dialect/ESI/ESIDialect.h"
@@ -38,6 +39,7 @@ inline void registerAllTranslations() {
     ExportSMTLIB::registerExportSMTLIBTranslation();
     ExportSystemC::registerExportSystemCTranslation();
     debug::registerTranslations();
+    registerFromVerilogTranslation();
     return true;
   }();
   (void)initOnce;
