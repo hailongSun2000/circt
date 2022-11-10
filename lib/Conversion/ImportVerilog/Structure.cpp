@@ -9,6 +9,16 @@
 #include "ImportVerilogInternals.h"
 #include "slang/ast/Compilation.h"
 
+// #include "slang/ast/ASTVisitor.h"
+// #include "slang/ast/Symbol.h"
+// #include "slang/ast/symbols/CompilationUnitSymbols.h"
+// #include "slang/ast/symbols/InstanceSymbols.h"
+// #include "slang/ast/symbols/VariableSymbols.h"
+// #include "slang/ast/types/AllTypes.h"
+// #include "slang/ast/types/Type.h"
+// #include "slang/syntax/SyntaxVisitor.h"
+// #include "llvm/ADT/StringRef.h"
+
 using namespace circt;
 using namespace ImportVerilog;
 
@@ -212,6 +222,16 @@ struct MemberVisitor {
   // variable layout _next to_ the initial procedure.
   LogicalResult visit(const slang::ast::StatementBlockSymbol &) {
     return success();
+  }
+
+  // Handle procedures.
+  LogicalResult visit(const slang::ast::ProceduralBlockSymbol &procNode) {
+    auto procOp = builder.create<moore::ProcedureOp>(
+        loc, convertProcedureKind(procNode.procedureKind));
+    procOp.getBodyRegion().emplaceBlock();
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToEnd(procOp.getBody());
+    return context.convertStatement(&procNode.getBody());
   }
 
   /// Emit an error for all other members.
