@@ -51,6 +51,13 @@ module Basic;
   // CHECK: %b2 = moore.variable [[TMP]] : !moore.bit
   bit [0:0] b1;
   bit b2 = b1;
+  
+  // CHECK: %n0 = moore.net "wire" : !moore.logic
+  // CHECK: %n1 = moore.net "tri" : !moore.logic
+  // CHECK: %n2 = moore.net "wire" : !moore.int
+  wire n0;
+  tri n1;
+  wire integer n2;
 
   // CHECK: moore.procedure initial {
   // CHECK: }
