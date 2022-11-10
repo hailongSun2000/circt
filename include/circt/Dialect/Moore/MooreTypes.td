@@ -47,6 +47,6 @@ class MooreLValueTypeOf<list<Type> allowedTypes>
     "$_self.cast<moore::LValueType>().getNestedType()", "Moore LValue type">;
 
 def MooreLValueType : MooreLValueTypeOf<[AnyType]>;
-def MooreRValueType : AnyTypeOf<[MooreIntType]>;
+def MooreRValueType : AnyTypeOf<[UnpackedType]>;
 
 #endif // CIRCT_DIALECT_MOORE_MOORETYPES

@@ -27,3 +27,7 @@ add_subdirectory(SeqToSV)
 add_subdirectory(CFToHandshake)
 add_subdirectory(VerifToSV)
 add_subdirectory(CalyxNative)
+
+if(CIRCT_SLANG_FRONTEND_ENABLED)
+  add_subdirectory(ImportVerilog)
+endif()
