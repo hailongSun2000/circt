@@ -25,6 +25,7 @@
 #include "circt/Dialect/Handshake/HandshakeDialect.h"
 #include "circt/Dialect/Interop/InteropDialect.h"
 #include "circt/Dialect/LLHD/IR/LLHDDialect.h"
+#include "circt/Dialect/LTL/LTLDialect.h"
 #include "circt/Dialect/MSFT/MSFTDialect.h"
 #include "circt/Dialect/Moore/MooreDialect.h"
 #include "circt/Dialect/Pipeline/Pipeline.h"
@@ -49,6 +50,7 @@ inline void registerAllDialects(mlir::DialectRegistry &registry) {
     handshake::HandshakeDialect,
     interop::InteropDialect,
     llhd::LLHDDialect,
+    ltl::LTLDialect,
     msft::MSFTDialect,
     moore::MooreDialect,
     hw::HWDialect,

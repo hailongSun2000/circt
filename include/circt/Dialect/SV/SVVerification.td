@@ -155,3 +155,60 @@ def CoverConcurrentOp : ConcurrentVerifOp<"cover.concurrent",
     section 16.5 of the SystemVerilog 2017 specification.
   }];
 }
+
+//===----------------------------------------------------------------------===//
+// SVA Properties
+//===----------------------------------------------------------------------===//
+
+class PropertyOp<string mnemonic, list<Trait> traits = []> :
+    SVOp<"property." # mnemonic, traits>;
+
+def PropNotOp : PropertyOp<"not", [Pure]> {
+  let arguments = (ins AnyProperty:$input);
+  let results = (outs PropertyType:$result);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+  let summary = "A negation property";
+  let description = [{
+    See IEEE 1800-2017 §16.12.3 Negation property.
+  }];
+}
+
+class BinaryPropOp<string mnemonic, list<Trait> traits = []> :
+    PropertyOp<mnemonic, traits # [Pure]> {
+  let arguments = (ins AnyProperty:$lhs, AnyProperty:$rhs);
+  let results = (outs PropertyType:$result);
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+  }];
+}
+
+def PropAndOp : BinaryPropOp<"and", [Commutative]> {
+  let summary = "A conjunction property";
+  let description = [{
+    See IEEE 1800-2017 §16.12.5 Conjunction property.
+  }];
+}
+
+def PropOrOp : BinaryPropOp<"or", [Commutative]> {
+  let summary = "A disjunction property";
+  let description = [{
+    See IEEE 1800-2017 §16.12.4 Disjunction property.
+  }];
+}
+
+def PropImplicationOp : PropertyOp<"implication", [Pure]> {
+  let arguments = (ins AnySequence:$lhs, AnyProperty:$rhs, UnitAttr:$nonoverlap);
+  let results = (outs PropertyType:$result);
+  let assemblyFormat = [{
+    (`nonoverlap` $nonoverlap^)? $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+  }];
+  let summary = "A sequence implying a property";
+  let description = [{
+    This operation represents the overlapping implication operator `|->` as well
+    as the non-overlapping `|=>` of SystemVerilog.
+
+    See IEEE 1800-2017 §16.12.7 Implication.
+  }];
+}

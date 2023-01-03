@@ -29,6 +29,7 @@ target_link_libraries(circt-opt
   CIRCTHandshakeTransforms
   CIRCTLLHD
   CIRCTLLHDToLLVM
+  CIRCTLTL
   CIRCTHWToLLVM
   CIRCTCombToLLVM
   CIRCTLLHDTransforms

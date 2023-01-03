@@ -15,9 +15,7 @@
 
 include "circt/Dialect/SV/SVDialect.td"
 
-// TODO: The following should go into a `SVTypesImpl.td` if we ever actually
-// define any SV-specific types. Doing so will keep this `SVTypes.td` file
-// includable for other dialects, without polluting their output with SV types.
+// Base class for the type definitions in this dialect.
 class SVType<string name> : TypeDef<SVDialect, name> { }
 
 //===----------------------------------------------------------------------===//
@@ -50,5 +48,39 @@ class InOutTypeConstraint<string value, string inoutValue>
 class InOutElementConstraint<string value, string inoutValue>
   : TypesMatchWith<"type should be element of inout type",
                    inoutValue, value, "sv::getInOutElementType($_self)">;
+
+//===----------------------------------------------------------------------===//
+// Sequence type
+//===----------------------------------------------------------------------===//
+
+def SequenceType : SVType<"Sequence"> {
+  let summary = "a formal sequence";
+  let description = [{
+    This type represents a SystemVerilog formal sequence.
+
+    See IEEE 1800-2017 §16.7 Sequences.
+  }];
+  let mnemonic = "sequence";
+  let assemblyFormat = "";
+}
+
+def AnySequence : AnyTypeOf<[SequenceType, I1]>;
+
+//===----------------------------------------------------------------------===//
+// Property type
+//===----------------------------------------------------------------------===//
+
+def PropertyType : SVType<"Property"> {
+  let summary = "a formal property";
+  let description = [{
+    This type represents a SystemVerilog formal property.
+
+    See IEEE 1800-2017 §16.12 Declaring properties.
+  }];
+  let mnemonic = "property";
+  let assemblyFormat = "";
+}
+
+def AnyProperty : AnyTypeOf<[PropertyType, AnySequence]>;
 
 #endif // CIRCT_DIALECT_SV_SVTYPES

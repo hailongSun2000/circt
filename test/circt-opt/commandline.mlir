@@ -22,6 +22,7 @@
 // DIALECT-NEXT: interop
 // DIALECT-NEXT: llhd
 // DIALECT-NEXT: llvm
+// DIALECT-NEXT: ltl
 // DIALECT-NEXT: memref
 // DIALECT-NEXT: moore
 // DIALECT-NEXT: msft
