@@ -70,4 +70,12 @@ def MapArithToCombPass : InterfacePass<"map-arith-to-comb", "circt::hw::HWModule
   let dependentDialects = ["circt::hw::HWDialect, mlir::arith::ArithDialect, circt::comb::CombDialect"];
 }
 
+def PrintKnownValues : Pass<"print-known-values", "::mlir::ModuleOp"> {
+  let summary = "Analyze known values and print them";
+  let constructor = "circt::createPrintKnownValuesPass()";
+  let options = [
+    Option<"topModuleName", "module", "std::string", /*default=*/"",
+           "Only show known values in the specified top-level module."> ];
+}
+
 #endif // CIRCT_TRANSFORMS_PASSES
