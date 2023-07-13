@@ -78,6 +78,23 @@ struct TypeVisitor {
     return moore::IntType::get(context.getContext(), kind, sign);
   }
 
+  Type visit(const slang::ast::FloatingType &type) {
+    moore::RealType::Kind kind;
+    switch (type.floatKind) {
+      case slang::ast::FloatingType::Real:
+        kind = moore::RealType::Real;
+        break;
+      case slang::ast::FloatingType::ShortReal:
+        kind = moore::RealType::ShortReal;
+        break;
+      case slang::ast::FloatingType::RealTime:
+        kind = moore::RealType::RealTime;
+        break;
+    }
+
+    return moore::RealType::get(context.getContext(), kind);
+  }
+
   Type visit(const slang::ast::PackedArrayType &type) {
     auto innerType = type.elementType.visit(*this);
     if (!innerType)
