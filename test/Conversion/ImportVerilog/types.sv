@@ -60,6 +60,16 @@ module IntAtoms;
   time signed s8;
 endmodule
 
+// CHECK-LABEL: moore.module @RealType
+module RealType;
+  // CHECK-NEXT: %d0 = moore.variable : !moore.real
+  // CHECK-NEXT: %d1 = moore.variable : !moore.realtime
+  // CHECK-NEXT: %d2 = moore.variable : !moore.shortreal
+  real d0;
+  realtime d1;
+  shortreal d2;
+endmodule
+
 // CHECK-LABEL: moore.module @PackedRangeDim
 module PackedRangeDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.packed<range<logic, 2:0>>
