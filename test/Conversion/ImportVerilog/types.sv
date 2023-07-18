@@ -60,14 +60,26 @@ module IntAtoms;
   time signed s8;
 endmodule
 
-// CHECK-LABEL: moore.module @RealType
-module RealType;
-  // CHECK-NEXT: %d0 = moore.variable : !moore.real
-  // CHECK-NEXT: %d1 = moore.variable : !moore.realtime
-  // CHECK-NEXT: %d2 = moore.variable : !moore.shortreal
-  real d0;
-  realtime d1;
-  shortreal d2;
+// CHECK-LABEL: moore.module @MultiPackedRangeDim
+module MultiPackedRangeDim;
+  // CHECK-NEXT: %v0 = moore.variable : !moore.packed<range<range<logic, 2:0>, 5:0>>
+  // CHECK-NEXT: %v1 = moore.variable : !moore.packed<range<range<logic, 2:0>, 0:5>>
+  logic [5:0][2:0] v0;
+  logic [0:5][2:0] v1;
+endmodule
+
+// CHECK-LABEL: moore.module @MultiUnpackedRangeDim
+module MultiUnpackedRangeDim;
+  // CHECK-NEXT: %v0 = moore.variable : !moore.unpacked<range<range<logic, 2:0>, 5:0>>
+  // CHECK-NEXT: %v1 = moore.variable : !moore.unpacked<range<range<logic, 2:0>, 0:5>>
+  logic v0 [5:0][2:0];
+  logic v1 [0:5][2:0];
+endmodule
+
+// CHECK-LABEL: moore.module @MultiUnpackedUnsizedDim
+module MultiUnpackedUnsizedDim;
+  // CHECK-NEXT: %v0 = moore.variable : !moore.unpacked<unsized<unsized<logic>>>
+  logic v0 [][];
 endmodule
 
 // CHECK-LABEL: moore.module @PackedRangeDim
@@ -78,10 +90,26 @@ module PackedRangeDim;
   logic [0:2] d1;
 endmodule
 
-// CHECK-LABEL: moore.module @MultiPackedRangeDim
-module MultiPackedRangeDim;
-  // CHECK-NEXT: %v0 = moore.variable : !moore.packed<range<range<logic, 2:0>, 5:0>>
-  // CHECK-NEXT: %v1 = moore.variable : !moore.packed<range<range<logic, 2:0>, 5:0>>
-  logic [5:0][2:0] v0;
-  logic [0:5][2:0] v1;
+// CHECK-LABEL: moore.module @RealType
+module RealType;
+  // CHECK-NEXT: %d0 = moore.variable : !moore.real
+  // CHECK-NEXT: %d1 = moore.variable : !moore.realtime
+  // CHECK-NEXT: %d2 = moore.variable : !moore.shortreal
+  real d0;
+  realtime d1;
+  shortreal d2;
+endmodule
+
+// CHECK-LABEL: moore.module @UnpackedRangeDim
+module UnpackedRangeDim;
+  // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<range<logic, 2:0>>
+  // CHECK-NEXT: %d1 = moore.variable : !moore.unpacked<range<logic, 0:2>>
+  logic d0 [2:0];
+  logic d1 [0:2];
+endmodule
+
+// CHECK-LABEL: moore.module @UnpackedUnsizedDim
+module UnpackedUnsizedDim;
+  // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<unsized<logic>>
+  logic d0 [];
 endmodule
