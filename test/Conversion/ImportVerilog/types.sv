@@ -101,11 +101,19 @@ module RealType;
 endmodule
 
 // CHECK-LABEL: moore.module @UnpackedAssocDim
-module UnpackedAssocDim
+module UnpackedAssocDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<assoc<logic, int>>
   // CEECK-NEXT: %d1 = moore.variable : !moore.unpacked<assoc<logic, logic>>
   logic d0 [int];
   logic d1 [logic];
+endmodule;
+
+// CHECK-LABEL: moore.module @UnpackedQueueDim
+module UnpackedQueueDim;
+  // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<queue<logic, 0>>
+  // CHECK-NEXT: %d1 = moore.variable : !moore.unpacked<queue<logic, 2>>
+  logic d0 [$];
+  logic d1 [$:2];
 endmodule;
 
 // CHECK-LABEL: moore.module @UnpackedRangeDim
@@ -115,14 +123,6 @@ module UnpackedRangeDim;
   logic d0 [2:0];
   logic d1 [0:2];
 endmodule
-
-// CHECK-LABEL: moore.module @UnpackedQueueDim
-module UnpackedQueueDim
-  // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<queue<logic, 0>>
-  // CHECK-NEXT: %d1 = moore.variable : !moore.unpacked<queue<logic, 2>>
-  logic d0 [$];
-  logic d1 [$:2];
-endmodule;
 
 // CHECK-LABEL: moore.module @UnpackedUnsizedDim
 module UnpackedUnsizedDim;
