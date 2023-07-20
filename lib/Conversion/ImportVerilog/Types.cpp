@@ -50,24 +50,24 @@ struct TypeVisitor {
   Type visit(const slang::ast::PredefinedIntegerType &type) {
     moore::IntType::Kind kind;
     switch (type.integerKind) {
-      case slang::ast::PredefinedIntegerType::Int:
-        kind = moore::IntType::Int;
-        break;
-      case slang::ast::PredefinedIntegerType::ShortInt:
-        kind = moore::IntType::ShortInt;
-        break;
-      case slang::ast::PredefinedIntegerType::LongInt:
-        kind = moore::IntType::LongInt;
-        break;
-      case slang::ast::PredefinedIntegerType::Integer:
-        kind = moore::IntType::Integer;
-        break;
-      case slang::ast::PredefinedIntegerType::Byte:
-        kind = moore::IntType::Byte;
-        break;
-      case slang::ast::PredefinedIntegerType::Time:
-        kind = moore::IntType::Time;
-        break;  
+    case slang::ast::PredefinedIntegerType::Int:
+      kind = moore::IntType::Int;
+      break;
+    case slang::ast::PredefinedIntegerType::ShortInt:
+      kind = moore::IntType::ShortInt;
+      break;
+    case slang::ast::PredefinedIntegerType::LongInt:
+      kind = moore::IntType::LongInt;
+      break;
+    case slang::ast::PredefinedIntegerType::Integer:
+      kind = moore::IntType::Integer;
+      break;
+    case slang::ast::PredefinedIntegerType::Byte:
+      kind = moore::IntType::Byte;
+      break;
+    case slang::ast::PredefinedIntegerType::Time:
+      kind = moore::IntType::Time;
+      break;
     }
 
     std::optional<moore::Sign> sign =
@@ -81,15 +81,15 @@ struct TypeVisitor {
   Type visit(const slang::ast::FloatingType &type) {
     moore::RealType::Kind kind;
     switch (type.floatKind) {
-      case slang::ast::FloatingType::Real:
-        kind = moore::RealType::Real;
-        break;
-      case slang::ast::FloatingType::ShortReal:
-        kind = moore::RealType::ShortReal;
-        break;
-      case slang::ast::FloatingType::RealTime:
-        kind = moore::RealType::RealTime;
-        break;
+    case slang::ast::FloatingType::Real:
+      kind = moore::RealType::Real;
+      break;
+    case slang::ast::FloatingType::ShortReal:
+      kind = moore::RealType::ShortReal;
+      break;
+    case slang::ast::FloatingType::RealTime:
+      kind = moore::RealType::RealTime;
+      break;
     }
 
     return moore::RealType::get(context.getContext(), kind);
@@ -111,12 +111,12 @@ struct TypeVisitor {
 
   Type visit(const slang::ast::DynamicArrayType &type) {
     auto innerType = type.elementType.visit(*this);
-    if(!innerType)
+    if (!innerType)
       return {};
     auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
-    if(!unpackedInnerType) {
+    if (!unpackedInnerType) {
       mlir::emitError(loc, "fixed size unpacked array; ")
-        << type.elementType.toString() << "is dynamic size unpacked";
+          << type.elementType.toString() << "is dynamic size unpacked";
       return {};
     }
     return moore::UnpackedUnsizedDim::get(unpackedInnerType);
@@ -124,16 +124,48 @@ struct TypeVisitor {
 
   Type visit(const slang::ast::FixedSizeUnpackedArrayType &type) {
     auto innerType = type.elementType.visit(*this);
-    if(!innerType)
+    if (!innerType)
       return {};
     auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
-    if(!unpackedInnerType) {
+    if (!unpackedInnerType) {
       mlir::emitError(loc, "dynamic unpacked array; ")
-        << type.elementType.toString() << "is fixed size unpacked";
+          << type.elementType.toString() << "is fixed size unpacked";
       return {};
     }
     return moore::UnpackedRangeDim::get(
         unpackedInnerType, moore::Range(type.range.left, type.range.right));
+  }
+
+  Type visit(const slang::ast::AssociativeArrayType &type) {
+    auto innerType = type.elementType.visit(*this);
+    if (!innerType)
+      return {};
+    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
+    if (!unpackedInnerType) {
+      mlir::emitError(loc, "dynamic unpacked array; ")
+          << type.elementType.toString() << "is associative unpacked";
+      return {};
+    }
+    auto indexType = type.indexType->visit(*this);
+    if (!indexType)
+      return {};
+    auto unpackedIndexType = dyn_cast<moore::UnpackedType>(indexType);
+    if (!unpackedIndexType)
+      return {};
+    return moore::UnpackedAssocDim::get(unpackedInnerType, unpackedIndexType);
+  }
+
+  Type visit(const slang::ast::QueueType &type) {
+    auto innerType = type.elementType.visit(*this);
+    if (!innerType)
+      return {};
+    auto unpackedInnerType = dyn_cast<moore::UnpackedType>(innerType);
+    if (!unpackedInnerType) {
+      mlir::emitError(loc, "dynamic unpacked array; ")
+          << type.elementType.toString() << "is queue unpacked";
+      return {};
+    }
+    return moore::UnpackedQueueDim::get(unpackedInnerType, type.maxBound);
   }
 
   /// Emit an error for all other types.
