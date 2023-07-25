@@ -47,54 +47,6 @@ struct TypeVisitor {
     return moore::IntType::get(context.getContext(), kind, sign);
   }
 
-  Type visit(const slang::ast::PredefinedIntegerType &type) {
-    moore::IntType::Kind kind;
-    switch (type.integerKind) {
-    case slang::ast::PredefinedIntegerType::Int:
-      kind = moore::IntType::Int;
-      break;
-    case slang::ast::PredefinedIntegerType::ShortInt:
-      kind = moore::IntType::ShortInt;
-      break;
-    case slang::ast::PredefinedIntegerType::LongInt:
-      kind = moore::IntType::LongInt;
-      break;
-    case slang::ast::PredefinedIntegerType::Integer:
-      kind = moore::IntType::Integer;
-      break;
-    case slang::ast::PredefinedIntegerType::Byte:
-      kind = moore::IntType::Byte;
-      break;
-    case slang::ast::PredefinedIntegerType::Time:
-      kind = moore::IntType::Time;
-      break;
-    }
-
-    std::optional<moore::Sign> sign =
-        type.isSigned ? moore::Sign::Signed : moore::Sign::Unsigned;
-    if (sign == moore::IntType::getDefaultSign(kind))
-      sign = {};
-
-    return moore::IntType::get(context.getContext(), kind, sign);
-  }
-
-  Type visit(const slang::ast::FloatingType &type) {
-    moore::RealType::Kind kind;
-    switch (type.floatKind) {
-    case slang::ast::FloatingType::Real:
-      kind = moore::RealType::Real;
-      break;
-    case slang::ast::FloatingType::ShortReal:
-      kind = moore::RealType::ShortReal;
-      break;
-    case slang::ast::FloatingType::RealTime:
-      kind = moore::RealType::RealTime;
-      break;
-    }
-
-    return moore::RealType::get(context.getContext(), kind);
-  }
-
   Type visit(const slang::ast::PackedArrayType &type) {
     auto innerType = type.elementType.visit(*this);
     if (!innerType)
@@ -166,6 +118,18 @@ struct TypeVisitor {
       return {};
     }
     return moore::UnpackedQueueDim::get(unpackedInnerType, type.maxBound);
+  }
+
+  Type visit(const slang::ast::EnumType &type) {
+    auto enumType = type.baseType.visit(*this);
+    if (!enumType)
+      return {};
+    auto et = dyn_cast<moore::PackedType>(enumType);
+    if (!et) {
+      mlir::emitError(loc, "dyn_cast is invalid! ") << type.baseType.toString();
+      return {};
+    }
+    return moore::EnumType::get(StringAttr::get(context.getContext()), loc, et);
   }
 
   /// Emit an error for all other types.

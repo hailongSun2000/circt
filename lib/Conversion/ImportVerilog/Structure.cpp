@@ -128,6 +128,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
+    // Handle Enum.
+    if (member.kind == slang::ast::SymbolKind::TransparentMember) {
+      auto &enumAst = member.as<slang::ast::TransparentMemberSymbol>().wrapped;
+      auto loweredType = convertType(*enumAst.getDeclaredType());
+      if (!loweredType)
+        return failure();
+      builder.create<moore::VariableOp>(convertLocation(enumAst.location),
+                                        loweredType,
+                                        builder.getStringAttr(enumAst.name));
+      continue;
+    }
+
     mlir::emitError(loc, "unsupported module member: ")
         << slang::ast::toString(member.kind);
     return failure();
