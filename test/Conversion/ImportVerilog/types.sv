@@ -88,7 +88,7 @@ module NetType;
   // CHECK-NEXT: %d1 = moore.variable : !moore.logic
   wire d0;
   tri d1;
-endmodule;
+endmodule
 
 // CHECK-LABEL: moore.module @PackedRangeDim
 module PackedRangeDim;
@@ -114,7 +114,7 @@ module UnpackedAssocDim;
   // CEECK-NEXT: %d1 = moore.variable : !moore.unpacked<assoc<logic, logic>>
   logic d0 [int];
   logic d1 [logic];
-endmodule;
+endmodule
 
 // CHECK-LABEL: moore.module @UnpackedQueueDim
 module UnpackedQueueDim;
@@ -122,7 +122,7 @@ module UnpackedQueueDim;
   // CHECK-NEXT: %d1 = moore.variable : !moore.unpacked<queue<logic, 2>>
   logic d0 [$];
   logic d1 [$:2];
-endmodule;
+endmodule
 
 // CHECK-LABEL: moore.module @UnpackedRangeDim
 module UnpackedRangeDim;
@@ -136,5 +136,5 @@ endmodule
 module UnpackedUnsizedDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<unsized<logic>>
   logic d0 [];
-endmodule;
+endmodule
 
