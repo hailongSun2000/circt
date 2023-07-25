@@ -82,6 +82,14 @@ module MultiUnpackedUnsizedDim;
   logic v0 [][];
 endmodule
 
+// CHECK-LABEL: moore.module @NetType
+module NetType;
+  // CHECK-NEXT: %d0 = moore.variable : !moore.logic
+  // CHECK-NEXT: %d1 = moore.variable : !moore.logic
+  wire d0;
+  tri d1;
+endmodule;
+
 // CHECK-LABEL: moore.module @PackedRangeDim
 module PackedRangeDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.packed<range<logic, 2:0>>
@@ -128,4 +136,5 @@ endmodule
 module UnpackedUnsizedDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<unsized<logic>>
   logic d0 [];
-endmodule
+endmodule;
+
