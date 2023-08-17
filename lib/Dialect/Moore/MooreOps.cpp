@@ -13,6 +13,7 @@
 #include "circt/Dialect/Moore/MooreOps.h"
 #include "circt/Support/CustomDirectiveImpl.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Value.h"
 
 using namespace circt;
 using namespace circt::moore;
@@ -42,6 +43,20 @@ LogicalResult InstanceOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 
 void VariableOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   setNameFn(getResult(), getName());
+}
+
+//===----------------------------------------------------------------------===//
+// AlwaysCombOp
+//===----------------------------------------------------------------------===//
+
+void AlwaysCombOp::build(OpBuilder &builder, OperationState &result,
+                         std::function<void()> bodyCtor) {
+  OpBuilder::InsertionGuard guard(builder);
+
+  builder.createBlock(result.addRegion());
+
+  if (bodyCtor)
+    bodyCtor();
 }
 
 //===----------------------------------------------------------------------===//
