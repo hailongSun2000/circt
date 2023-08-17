@@ -7,6 +7,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "ImportVerilogInternals.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Dialect.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/Visitors.h"
+#include "mlir/Support/LogicalResult.h"
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Symbol.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
@@ -15,6 +20,17 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
+#include <cstdint>
+#include <functional>
+#include <slang/ast/ASTContext.h>
+#include <slang/ast/EvalContext.h>
+#include <slang/ast/Expression.h>
+#include <slang/ast/Statements.h>
+#include <slang/ast/expressions/AssignmentExpressions.h>
+#include <slang/ast/expressions/LiteralExpressions.h>
+#include <slang/syntax/SyntaxKind.h>
+#include <string_view>
+#include <variant>
 
 using namespace circt;
 using namespace ImportVerilog;
@@ -110,9 +126,19 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loweredType = convertType(*varAst.getDeclaredType());
       if (!loweredType)
         return failure();
-      builder.create<moore::VariableOp>(convertLocation(varAst.location),
-                                        loweredType,
-                                        builder.getStringAttr(varAst.name));
+      auto loc = convertLocation(varAst.location);
+
+      auto initializer = varAst.getInitializer();
+      if (initializer) {
+        slang::ast::EvalContext ctx(compilation);
+        builder.create<moore::VariableDeclOp>(
+            loc, moore::LValueType::get(loweredType),
+            builder.getStringAttr(varAst.name),
+            *initializer->eval(ctx).integer().getRawPtr());
+      } else
+        builder.create<moore::VariableOp>(convertLocation(varAst.location),
+                                          loweredType,
+                                          builder.getStringAttr(varAst.name));
       continue;
     }
 
@@ -146,12 +172,72 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto assignment = &assignAst.getAssignment();
       auto assignExpr = &assignment->as<slang::ast::AssignmentExpression>();
 
-      // Represents the name of variable.
+      // Get the name of variable.
       auto destName = assignExpr->left().getSymbolReference()->name;
-      auto loweredType = convertType(*assignExpr->left().type);
+      // Get the type of variable.
+      auto destType = convertType(*assignExpr->left().type);
       auto loc = convertLocation(assignAst.location);
 
-      // This gets the address of the variable.
+      // Get the location of the variable.
+      auto destLoc =
+          convertLocation(assignExpr->left().getSymbolReference()->location);
+
+      if (assignExpr->right().kind == slang::ast::ExpressionKind::Conversion) {
+        // To handle the operand on the right side of an expression.
+        auto exprRight =
+            &assignExpr->right().as<slang::ast::ConversionExpression>();
+
+        slang::ast::EvalContext ctx(compilation);
+        // Get the outer type, rather than the type of the operand scope.
+        IntegerType srcType =
+            builder.getIntegerType(exprRight->operand().type->getBitWidth());
+        IntegerAttr srcValue = builder.getIntegerAttr(
+            srcType, *exprRight->eval(ctx).integer().getRawPtr());
+
+        Value dest = builder.create<moore::VariableDeclOp>(
+            destLoc, moore::LValueType::get(destType),
+            builder.getStringAttr(destName),
+            *exprRight->eval(ctx).integer().getRawPtr());
+        Value src = builder.create<moore::ConstantOp>(
+            loc, convertType(*assignExpr->right().type), srcValue);
+
+        builder.create<moore::AssignOp>(loc, dest, src);
+      } else { // TODO: To handle another case, the right side is a variable.
+        // Let's not think about this now.
+        continue;
+      }
+      continue;
+    }
+
+    // Handle AlwaysComb.
+    if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
+      auto &procAst = member.as<slang::ast::ProceduralBlockSymbol>();
+      auto loc = convertLocation(procAst.location);
+
+      std::string_view stmtKind = toString(procAst.getBody().kind);
+      static const slang::ast::ExpressionStatement *assignment;
+
+      if (stmtKind == "Block") {
+        auto blockStmt = &procAst.getBody().as<slang::ast::BlockStatement>();
+        if (toString(blockStmt->body.kind) == "List") {
+          auto listStmt = &blockStmt->body.as<slang::ast::StatementList>();
+        } else
+          assignment = &blockStmt->body.as<slang::ast::ExpressionStatement>();
+      }
+      if (stmtKind == "ExpressionStatement") {
+        assignment = &procAst.getBody().as<slang::ast::ExpressionStatement>();
+      }
+
+      auto assignExpr =
+          &assignment->expr.as<slang::ast::AssignmentExpression>();
+
+      // Get the name of variable.
+      auto destName = assignExpr->left().getSymbolReference()->name;
+      // Get the type of variable.
+      auto destType = convertType(*assignExpr->left().type);
+      // auto loc = convertLocation(assignAst.location);
+
+      // Get the location of the variable.
       auto destLoc =
           convertLocation(assignExpr->left().getSymbolReference()->location);
 
@@ -160,19 +246,25 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
           &assignExpr->right().as<slang::ast::ConversionExpression>();
 
       slang::ast::EvalContext ctx(compilation);
+      // Get the outer type, rather than the type of the operand scope.
       IntegerType srcType =
           builder.getIntegerType(exprRight->operand().type->getBitWidth());
       IntegerAttr srcValue = builder.getIntegerAttr(
-          srcType, *exprRight->operand().eval(ctx).integer().getRawPtr());
+          srcType, *exprRight->eval(ctx).integer().getRawPtr());
+
+      auto alwaysComb = builder.create<moore::AlwaysCombOp>(loc);
+      builder.setInsertionPointToStart(&alwaysComb.getBody().front());
 
       Value dest = builder.create<moore::VariableDeclOp>(
-          destLoc, moore::LValueType::get(loweredType),
+          destLoc, moore::LValueType::get(destType),
           builder.getStringAttr(destName),
-          *exprRight->operand().eval(ctx).integer().getRawPtr());
+          *exprRight->eval(ctx).integer().getRawPtr());
       Value src = builder.create<moore::ConstantOp>(
           loc, convertType(*assignExpr->right().type), srcValue);
 
       builder.create<moore::AssignOp>(loc, dest, src);
+      builder.setInsertionPointAfter(alwaysComb);
+
       continue;
     }
 
