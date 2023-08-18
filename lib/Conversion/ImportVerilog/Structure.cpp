@@ -7,11 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "ImportVerilogInternals.h"
-#include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Dialect.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/Visitors.h"
-#include "mlir/Support/LogicalResult.h"
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Symbol.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
@@ -20,17 +15,6 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
-#include <cstdint>
-#include <functional>
-#include <slang/ast/ASTContext.h>
-#include <slang/ast/EvalContext.h>
-#include <slang/ast/Expression.h>
-#include <slang/ast/Statements.h>
-#include <slang/ast/expressions/AssignmentExpressions.h>
-#include <slang/ast/expressions/LiteralExpressions.h>
-#include <slang/syntax/SyntaxKind.h>
-#include <string_view>
-#include <variant>
 
 using namespace circt;
 using namespace ImportVerilog;
@@ -170,14 +154,13 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
       auto &assignAst = member.as<slang::ast::ContinuousAssignSymbol>();
       auto assignment = &assignAst.getAssignment();
+      auto loc = convertLocation(assignAst.location);
       auto assignExpr = &assignment->as<slang::ast::AssignmentExpression>();
 
       // Get the name of variable.
       auto destName = assignExpr->left().getSymbolReference()->name;
       // Get the type of variable.
       auto destType = convertType(*assignExpr->left().type);
-      auto loc = convertLocation(assignAst.location);
-
       // Get the location of the variable.
       auto destLoc =
           convertLocation(assignExpr->left().getSymbolReference()->location);
@@ -204,7 +187,6 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
         builder.create<moore::AssignOp>(loc, dest, src);
       } else { // TODO: To handle another case, the right side is a variable.
         // Let's not think about this now.
-        continue;
       }
       continue;
     }
