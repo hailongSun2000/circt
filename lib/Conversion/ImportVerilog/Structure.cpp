@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "ImportVerilogInternals.h"
+#include "circt/Support/LLVM.h"
+#include "mlir/IR/Diagnostics.h"
+#include "slang/ast/ASTContext.h"
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Symbol.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
@@ -15,6 +18,12 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
+#include "llvm/Support/LEB128.h"
+#include <iostream>
+#include <slang/ast/Expression.h>
+#include <slang/ast/Lookup.h>
+#include <slang/ast/Statements.h>
+#include <slang/syntax/AllSyntax.h>
 
 using namespace circt;
 using namespace ImportVerilog;
@@ -196,55 +205,9 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto &procAst = member.as<slang::ast::ProceduralBlockSymbol>();
       auto loc = convertLocation(procAst.location);
 
-      std::string_view stmtKind = toString(procAst.getBody().kind);
-      static const slang::ast::ExpressionStatement *assignment;
-
-      if (stmtKind == "Block") {
-        auto blockStmt = &procAst.getBody().as<slang::ast::BlockStatement>();
-        if (toString(blockStmt->body.kind) == "List") {
-          auto listStmt = &blockStmt->body.as<slang::ast::StatementList>();
-        } else
-          assignment = &blockStmt->body.as<slang::ast::ExpressionStatement>();
-      }
-      if (stmtKind == "ExpressionStatement") {
-        assignment = &procAst.getBody().as<slang::ast::ExpressionStatement>();
-      }
-
-      auto assignExpr =
-          &assignment->expr.as<slang::ast::AssignmentExpression>();
-
-      // Get the name of variable.
-      auto destName = assignExpr->left().getSymbolReference()->name;
-      // Get the type of variable.
-      auto destType = convertType(*assignExpr->left().type);
-      // auto loc = convertLocation(assignAst.location);
-
-      // Get the location of the variable.
-      auto destLoc =
-          convertLocation(assignExpr->left().getSymbolReference()->location);
-
-      // To handle the operand on the right side of an expression.
-      auto exprRight =
-          &assignExpr->right().as<slang::ast::ConversionExpression>();
-
-      slang::ast::EvalContext ctx(compilation);
-      // Get the outer type, rather than the type of the operand scope.
-      IntegerType srcType =
-          builder.getIntegerType(exprRight->operand().type->getBitWidth());
-      IntegerAttr srcValue = builder.getIntegerAttr(
-          srcType, *exprRight->eval(ctx).integer().getRawPtr());
-
       auto alwaysComb = builder.create<moore::AlwaysCombOp>(loc);
-      builder.setInsertionPointToStart(&alwaysComb.getBody().front());
-
-      Value dest = builder.create<moore::VariableDeclOp>(
-          destLoc, moore::LValueType::get(destType),
-          builder.getStringAttr(destName),
-          *exprRight->eval(ctx).integer().getRawPtr());
-      Value src = builder.create<moore::ConstantOp>(
-          loc, convertType(*assignExpr->right().type), srcValue);
-
-      builder.create<moore::AssignOp>(loc, dest, src);
+      builder.setInsertionPointToEnd(&alwaysComb.getBodyBlock());
+      convertStatement(&procAst.getBody());
       builder.setInsertionPointAfter(alwaysComb);
 
       continue;

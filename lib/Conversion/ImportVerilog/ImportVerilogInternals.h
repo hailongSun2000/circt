@@ -12,6 +12,8 @@
 #include "circt/Conversion/ImportVerilog.h"
 #include "circt/Dialect/Moore/MooreOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Location.h"
+#include "mlir/Support/LogicalResult.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/Definition.h"
 #include "slang/syntax/SyntaxTree.h"
@@ -19,6 +21,8 @@
 #include "slang/text/SourceManager.h"
 #include "llvm/Support/Debug.h"
 #include <queue>
+#include <slang/ast/ASTContext.h>
+#include <slang/ast/Statements.h>
 
 #define DEBUG_TYPE "import-verilog"
 
@@ -52,6 +56,9 @@ struct Context {
   LogicalResult convertCompilation();
   Operation *convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
+
+  void convertStatement(const slang::ast::Statement *statement);
+  decltype(auto) visitStmt(const slang::ast::ExpressionStatement *exprStmt);
 
   mlir::ModuleOp intoModuleOp;
   const slang::SourceManager &sourceManager;
