@@ -86,3 +86,35 @@ def AlwaysCombOp : MooreOp<"alwayscomb", [
     mlir::Block &getBodyBlock() { return getBody().front(); }
   }];
 }
+
+def InitialOp : MooreOp<"initial", [
+  SingleBlock,
+  NoTerminator,
+  NoRegionArguments,
+  RecursiveMemoryEffects,
+  RecursivelySpeculatable
+]> {
+  let summary = "'initial block";
+  let description = "See SV Spec 9.2.1.";
+
+  let regions = (region SizedRegion<1>:$body);
+  let arguments = (ins);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    $body attr-dict
+  }];
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+    OpBuilder<(ins CArg<"std::function<void()>", "{}">:$bodyCtor)>
+  ];
+
+  let extraClassDeclaration = [{
+    static mlir::RegionKind getRegionKind(unsigned index) {
+      return mlir::RegionKind::SSACFG;
+    }
+
+    mlir::Block &getBodyBlock() { return getBody().front(); }
+  }];
+}

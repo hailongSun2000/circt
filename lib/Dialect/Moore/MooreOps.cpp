@@ -60,6 +60,20 @@ void AlwaysCombOp::build(OpBuilder &builder, OperationState &result,
 }
 
 //===----------------------------------------------------------------------===//
+// InitialOp
+//===----------------------------------------------------------------------===//
+
+void InitialOp::build(OpBuilder &builder, OperationState &result,
+                      std::function<void()> bodyCtor) {
+  OpBuilder::InsertionGuard guard(builder);
+
+  builder.createBlock(result.addRegion());
+
+  if (bodyCtor)
+    bodyCtor();
+}
+
+//===----------------------------------------------------------------------===//
 // Type Inference
 //===----------------------------------------------------------------------===//
 

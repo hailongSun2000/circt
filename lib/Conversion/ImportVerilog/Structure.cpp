@@ -7,9 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "ImportVerilogInternals.h"
-#include "circt/Support/LLVM.h"
-#include "mlir/IR/Diagnostics.h"
-#include "slang/ast/ASTContext.h"
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Symbol.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
@@ -18,12 +15,6 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
-#include "llvm/Support/LEB128.h"
-#include <iostream>
-#include <slang/ast/Expression.h>
-#include <slang/ast/Lookup.h>
-#include <slang/ast/Statements.h>
-#include <slang/syntax/AllSyntax.h>
 
 using namespace circt;
 using namespace ImportVerilog;
@@ -163,52 +154,39 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
       auto &assignAst = member.as<slang::ast::ContinuousAssignSymbol>();
       auto assignment = &assignAst.getAssignment();
-      auto loc = convertLocation(assignAst.location);
-      auto assignExpr = &assignment->as<slang::ast::AssignmentExpression>();
-
-      // Get the name of variable.
-      auto destName = assignExpr->left().getSymbolReference()->name;
-      // Get the type of variable.
-      auto destType = convertType(*assignExpr->left().type);
-      // Get the location of the variable.
-      auto destLoc =
-          convertLocation(assignExpr->left().getSymbolReference()->location);
-
-      if (assignExpr->right().kind == slang::ast::ExpressionKind::Conversion) {
-        // To handle the operand on the right side of an expression.
-        auto exprRight =
-            &assignExpr->right().as<slang::ast::ConversionExpression>();
-
-        slang::ast::EvalContext ctx(compilation);
-        // Get the outer type, rather than the type of the operand scope.
-        IntegerType srcType =
-            builder.getIntegerType(exprRight->operand().type->getBitWidth());
-        IntegerAttr srcValue = builder.getIntegerAttr(
-            srcType, *exprRight->eval(ctx).integer().getRawPtr());
-
-        Value dest = builder.create<moore::VariableDeclOp>(
-            destLoc, moore::LValueType::get(destType),
-            builder.getStringAttr(destName),
-            *exprRight->eval(ctx).integer().getRawPtr());
-        Value src = builder.create<moore::ConstantOp>(
-            loc, convertType(*assignExpr->right().type), srcValue);
-
-        builder.create<moore::AssignOp>(loc, dest, src);
-      } else { // TODO: To handle another case, the right side is a variable.
-        // Let's not think about this now.
-      }
+      convertExpression(assignment);
       continue;
     }
 
-    // Handle AlwaysComb.
+    // Handle ProceduralBlock.
     if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
       auto &procAst = member.as<slang::ast::ProceduralBlockSymbol>();
       auto loc = convertLocation(procAst.location);
-
-      auto alwaysComb = builder.create<moore::AlwaysCombOp>(loc);
-      builder.setInsertionPointToEnd(&alwaysComb.getBodyBlock());
-      convertStatement(&procAst.getBody());
-      builder.setInsertionPointAfter(alwaysComb);
+      switch (procAst.procedureKind) {
+      case slang::ast::ProceduralBlockKind::AlwaysComb:
+        builder.create<moore::AlwaysCombOp>(
+            loc, [&]() -> void { convertStatement(&procAst.getBody()); });
+        break;
+      case slang::ast::ProceduralBlockKind::Initial:
+        builder.create<moore::InitialOp>(
+            loc, [&]() -> void { convertStatement(&procAst.getBody()); });
+        break;
+      case slang::ast::ProceduralBlockKind::AlwaysLatch:
+        assert(0 && "TODO");
+        break;
+      case slang::ast::ProceduralBlockKind::AlwaysFF:
+        assert(0 && "TODO");
+        break;
+      case slang::ast::ProceduralBlockKind::Always:
+        assert(0 && "TODO");
+        break;
+      case slang::ast::ProceduralBlockKind::Final:
+        assert(0 && "TODO");
+        break;
+      default:
+        mlir::emitError(loc, "unsupport proceduralBlockKind");
+        break;
+      }
 
       continue;
     }
