@@ -132,9 +132,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loweredType = convertType(*netAst.getDeclaredType());
       if (!loweredType)
         return failure();
-      builder.create<moore::VariableOp>(convertLocation(netAst.location),
-                                        loweredType,
-                                        builder.getStringAttr(netAst.name));
+      auto loc = convertLocation(netAst.location);
+      auto initializer = netAst.getInitializer();
+
+      if (initializer) {
+        slang::ast::EvalContext ctx(compilation);
+        builder.create<moore::VariableDeclOp>(
+            loc, moore::LValueType::get(loweredType),
+            builder.getStringAttr(netAst.name),
+            *initializer->eval(ctx).integer().getRawPtr());
+      } else
+        builder.create<moore::VariableOp>(loc, loweredType,
+                                          builder.getStringAttr(netAst.name));
       continue;
     }
 
@@ -172,20 +181,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
             loc, [&]() -> void { convertStatement(&procAst.getBody()); });
         break;
       case slang::ast::ProceduralBlockKind::AlwaysLatch:
-        assert(0 && "TODO");
-        break;
+        return mlir::emitError(loc,
+                               "unsupported procedural block: always latch");
       case slang::ast::ProceduralBlockKind::AlwaysFF:
-        assert(0 && "TODO");
-        break;
+        return mlir::emitError(
+            loc, "unsupported procedural block: always flip-flop");
       case slang::ast::ProceduralBlockKind::Always:
-        assert(0 && "TODO");
-        break;
+        return mlir::emitError(loc, "unsupported procedural block: always");
       case slang::ast::ProceduralBlockKind::Final:
-        assert(0 && "TODO");
-        break;
+        return mlir::emitError(loc, "unsupported procedural block: final");
       default:
-        mlir::emitError(loc, "unsupport proceduralBlockKind");
-        break;
+        mlir::emitError(loc, "unsupported procedural block");
+        return failure();
       }
 
       continue;
