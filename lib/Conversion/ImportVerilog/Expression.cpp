@@ -92,6 +92,7 @@ Value Context::visitConversion(
     mlir::emitError(loc, "unsupported conversion expression");
     return nullptr;
   }
+
   return nullptr;
 }
 
@@ -115,5 +116,6 @@ Value Context::visitExpression(const slang::ast::Expression *expression) {
     mlir::emitError(loc, "unsupported expression");
     return nullptr;
   }
+
   return nullptr;
 }
