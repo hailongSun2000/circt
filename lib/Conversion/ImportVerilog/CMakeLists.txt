@@ -19,12 +19,20 @@ else ()
   add_compile_options(-Wno-cast-qual)
   # visitor switch statements cover all cases but have default
   add_compile_options(-Wno-covered-switch-default)
+  # slang use DEBUG definition and circt use _DEBUG definition
+  add_compile_definitions(DEBUG)
+  add_compile_definitions(BOOST_ALL_NO_LIB)
+  add_compile_definitions(SLANG_STATIC_DEFINE)
+  add_compile_definitions(SLANG_USE_BOOST)
 endif ()
 
+set(CMAKE_CXX_STANDARD 20)
 add_circt_translation_library(CIRCTImportVerilog
   ImportVerilog.cpp
   Structure.cpp
   Types.cpp
+  Statement.cpp
+  Expression.cpp
 
   LINK_LIBS PUBLIC
   CIRCTMoore

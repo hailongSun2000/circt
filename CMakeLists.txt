@@ -513,7 +513,7 @@ endif()
 
 option(CIRCT_SLANG_FRONTEND_ENABLED "Enables slang Verilog frontend." ON)
 option(CIRCT_SLANG_BUILD_FROM_SOURCE
-  "Build slang from source instead of finding an installed package" ON)
+  "Build slang from source instead of finding an installed package" OFF)
 
 llvm_canonicalize_cmake_booleans(CIRCT_SLANG_FRONTEND_ENABLED)
 if(CIRCT_SLANG_FRONTEND_ENABLED)
@@ -527,7 +527,7 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
     FetchContent_Declare(
       slang
       GIT_REPOSITORY https://github.com/MikePopoloski/slang.git
-      GIT_TAG v2.0
+      GIT_TAG v3.0
       GIT_SHALLOW ON)
     FetchContent_MakeAvailable(slang)
     # The following feels *very* hacky, but CMake complains about the
@@ -540,7 +540,8 @@ if(CIRCT_SLANG_FRONTEND_ENABLED)
     install(TARGETS slang_slang unordered_dense EXPORT CIRCTTargets)
     set(CMAKE_CXX_FLAGS ${original_CXX_FLAGS})
   else()
-    find_package(slang 2.0 REQUIRED)
+    find_package(slang REQUIRED)
+    find_package(Boost REQUIRED)
   endif()
 endif()
 
