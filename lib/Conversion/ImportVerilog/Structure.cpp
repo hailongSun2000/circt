@@ -76,6 +76,7 @@ Context::convertModuleHeader(const slang::ast::InstanceBodySymbol *module) {
 
 LogicalResult
 Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
+  llvm::ScopedHashTableScope<StringRef, Value> scope(varSymbolTable);
   LLVM_DEBUG(llvm::dbgs() << "Converting body of module " << module->name
                           << "\n");
   auto moduleOp = moduleOps.lookup(module);
@@ -114,15 +115,25 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
 
       auto initializer = varAst.getInitializer();
       if (initializer) {
-        slang::ast::EvalContext ctx(compilation);
-        builder.create<moore::VariableDeclOp>(
-            loc, moore::LValueType::get(loweredType),
-            builder.getStringAttr(varAst.name),
-            *initializer->eval(ctx).integer().getRawPtr());
-      } else
-        builder.create<moore::VariableOp>(convertLocation(varAst.location),
-                                          loweredType,
-                                          builder.getStringAttr(varAst.name));
+        if (initializer->kind == slang::ast::ExpressionKind::NamedValue) {
+          if (!varSymbolTable.count(initializer->getSymbolReference()->name)) {
+            mlir::emitError(loc, "unknown variable '")
+                << initializer->getSymbolReference()->name << "'";
+            continue;
+          }
+          mlir::emitError(loc, "unsupported variable declaration");
+        } else {
+          slang::ast::EvalContext ctx(compilation);
+          auto initValue = *initializer->eval(ctx).integer().getRawPtr();
+          auto val = builder.create<moore::VariableDeclOp>(
+              loc, moore::LValueType::get(loweredType), varAst.name, initValue);
+          varSymbolTable.insert(varAst.name, val);
+        }
+      } else {
+        auto val = builder.create<moore::VariableOp>(
+            loc, moore::LValueType::get(loweredType), varAst.name);
+        varSymbolTable.insert(varAst.name, val);
+      }
       continue;
     }
 
@@ -136,14 +147,25 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto initializer = netAst.getInitializer();
 
       if (initializer) {
-        slang::ast::EvalContext ctx(compilation);
-        builder.create<moore::VariableDeclOp>(
-            loc, moore::LValueType::get(loweredType),
-            builder.getStringAttr(netAst.name),
-            *initializer->eval(ctx).integer().getRawPtr());
-      } else
-        builder.create<moore::VariableOp>(loc, loweredType,
-                                          builder.getStringAttr(netAst.name));
+        if (initializer->kind == slang::ast::ExpressionKind::NamedValue) {
+          if (!varSymbolTable.count(initializer->getSymbolReference()->name)) {
+            mlir::emitError(loc, "unknown variable '")
+                << initializer->getSymbolReference()->name << "'";
+            continue;
+          }
+          mlir::emitError(loc, "unsupported variable declaration");
+        } else {
+          slang::ast::EvalContext ctx(compilation);
+          auto initValue = initializer->eval(ctx).integer().getNumWords();
+          Value val = builder.create<moore::VariableDeclOp>(
+              loc, moore::LValueType::get(loweredType), netAst.name, initValue);
+          varSymbolTable.insert(netAst.name, val);
+        }
+      } else {
+        Value val = builder.create<moore::VariableOp>(
+            loc, moore::LValueType::get(loweredType), netAst.name);
+        varSymbolTable.insert(netAst.name, val);
+      }
       continue;
     }
 
@@ -154,8 +176,7 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       if (!loweredType)
         return failure();
       builder.create<moore::VariableOp>(convertLocation(enumAst.location),
-                                        loweredType,
-                                        builder.getStringAttr(enumAst.name));
+                                        loweredType, enumAst.name);
       continue;
     }
 
@@ -163,7 +184,7 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
       auto &assignAst = member.as<slang::ast::ContinuousAssignSymbol>();
       auto assignment = &assignAst.getAssignment();
-      convertExpression(assignment);
+      visitExpression(assignment);
       continue;
     }
 
@@ -173,12 +194,14 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loc = convertLocation(procAst.location);
       switch (procAst.procedureKind) {
       case slang::ast::ProceduralBlockKind::AlwaysComb:
-        builder.create<moore::AlwaysCombOp>(
-            loc, [&]() -> void { convertStatement(&procAst.getBody()); });
+        rootBuilder.setInsertionPointToEnd(
+            &builder.create<moore::AlwaysCombOp>(loc).getBodyBlock());
+        convertStatement(&procAst.getBody());
         break;
       case slang::ast::ProceduralBlockKind::Initial:
-        builder.create<moore::InitialOp>(
-            loc, [&]() -> void { convertStatement(&procAst.getBody()); });
+        rootBuilder.setInsertionPointToEnd(
+            &builder.create<moore::InitialOp>(loc).getBodyBlock());
+        convertStatement(&procAst.getBody());
         break;
       case slang::ast::ProceduralBlockKind::AlwaysLatch:
         return mlir::emitError(loc,

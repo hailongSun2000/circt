@@ -19,31 +19,106 @@
 using namespace circt;
 using namespace ImportVerilog;
 
-LogicalResult
-Context::convertExpression(const slang::ast::Expression *expression) {
+// Detail processing about integer literal.
+Value Context::visitIntegerLiteral(
+    const slang::ast::IntegerLiteral *integerLiteralExpr) {
+  auto srcValue = rootBuilder.getI32IntegerAttr(
+      integerLiteralExpr->getValue().as<int32_t>().value());
+  return rootBuilder.create<moore::ConstantOp>(
+      convertLocation(integerLiteralExpr->sourceRange.start()),
+      convertType(*integerLiteralExpr->type), srcValue);
+}
+
+// Detail processing about named value.
+Value Context::visitNamedValue(
+    const slang::ast::NamedValueExpression *namedValueExpr) {
+  auto destName = namedValueExpr->getSymbolReference()->name;
+  return varSymbolTable.lookup(destName);
+}
+
+// Detail processing about assignment.
+LogicalResult Context::visitAssignmentExpr(
+    const slang::ast::AssignmentExpression *assignmentExpr) {
+  auto loc = convertLocation(assignmentExpr->sourceRange.start());
+  Value lhs = visitExpression(&assignmentExpr->left());
+  if (!lhs)
+    return failure();
+  Value rhs = visitExpression(&assignmentExpr->right());
+  if (!rhs)
+    return failure();
+  if (assignmentExpr->right().kind == slang::ast::ExpressionKind::NamedValue) {
+    mlir::emitError(loc, "unsupported assignment of kind like a = b");
+    return failure();
+  }
+  rootBuilder.create<moore::AssignOp>(loc, lhs, rhs);
+  auto lhsName = assignmentExpr->left().getSymbolReference()->name;
+  varSymbolTable.insert(lhsName, rhs);
+  return success();
+}
+
+// Detail processing about conversion
+Value Context::visitConversion(
+    const slang::ast::ConversionExpression *conversionExpr,
+    const slang::ast::Type &type) {
+  auto loc = convertLocation(conversionExpr->sourceRange.start());
+  switch (conversionExpr->operand().kind) {
+  case slang::ast::ExpressionKind::IntegerLiteral:
+    return rootBuilder.create<moore::ConstantOp>(
+        loc, convertType(type),
+        conversionExpr->operand()
+            .as<slang::ast::IntegerLiteral>()
+            .getValue()
+            .as<uint32_t>()
+            .value());
+  case slang::ast::ExpressionKind::NamedValue:
+    return visitNamedValue(
+        &conversionExpr->operand().as<slang::ast::NamedValueExpression>());
+  case slang::ast::ExpressionKind::BinaryOp:
+    mlir::emitError(loc, "unsupported conversion expression: binary operator");
+    return nullptr;
+  case slang::ast::ExpressionKind::ConditionalOp:
+    mlir::emitError(loc,
+                    "unsupported conversion expression: conditional operator");
+    return nullptr;
+  case slang::ast::ExpressionKind::Conversion:
+    return visitConversion(
+        &conversionExpr->operand().as<slang::ast::ConversionExpression>(),
+        *conversionExpr->type);
+  case slang::ast::ExpressionKind::LValueReference:
+    mlir::emitError(loc, "unsupported conversion expression: lValue reference");
+    return nullptr;
+  // There is other cases.
+  default:
+    mlir::emitError(loc, "unsupported conversion expression");
+    return nullptr;
+  }
+  return nullptr;
+}
+
+// It can handle the expressions like literal, assignment, conversion, and etc,
+// which can be reviewed in slang/include/slang/ast/ASTVisitor.h.
+Value Context::visitExpression(const slang::ast::Expression *expression) {
   auto loc = convertLocation(expression->sourceRange.start());
   switch (expression->kind) {
   case slang::ast::ExpressionKind::IntegerLiteral:
-    return mlir::emitError(loc, "unsupported expression: interger literal");
+    return visitIntegerLiteral(&expression->as<slang::ast::IntegerLiteral>());
   case slang::ast::ExpressionKind::NamedValue:
-    // I think that needs to call another function, like visitExpr(...), which
-    // handles details about expressions.
-    return mlir::emitError(loc, "unsupported expression: named value");
-  case slang::ast::ExpressionKind::UnaryOp:
-    return mlir::emitError(loc, "unsupported expression: unary operator");
-  case slang::ast::ExpressionKind::BinaryOp:
-    return mlir::emitError(loc, "unsupported expression: binary operator");
+    return visitNamedValue(&expression->as<slang::ast::NamedValueExpression>());
   case slang::ast::ExpressionKind::Assignment:
-    return mlir::emitError(loc, "unsupported expression: assignment");
+    visitAssignmentExpr(&expression->as<slang::ast::AssignmentExpression>());
+    break;
   case slang::ast::ExpressionKind::Conversion:
-    return mlir::emitError(loc, "unsupported expression: conversion");
-    // Other cases need to be appended.
+    return visitConversion(&expression->as<slang::ast::ConversionExpression>(),
+                           *expression->type);
+  // There is other cases.
   default:
     mlir::emitError(loc, "unsupported expression");
-    return failure();
+    return nullptr;
   }
+  return nullptr;
 }
 
+// It can handle the statements like case, conditional(if), for loop, and etc.
 LogicalResult
 Context::convertStatement(const slang::ast::Statement *statement) {
   auto loc = convertLocation(statement->sourceRange.start());
@@ -57,7 +132,7 @@ Context::convertStatement(const slang::ast::Statement *statement) {
     convertStatement(&statement->as<slang::ast::BlockStatement>().body);
     break;
   case slang::ast::StatementKind::ExpressionStatement:
-    convertExpression(&statement->as<slang::ast::ExpressionStatement>().expr);
+    visitExpression(&statement->as<slang::ast::ExpressionStatement>().expr);
     break;
   case slang::ast::StatementKind::VariableDeclaration:
     return mlir::emitError(loc, "unsupported statement: variable declaration");
@@ -115,4 +190,6 @@ Context::convertStatement(const slang::ast::Statement *statement) {
     mlir::emitRemark(loc, "unsupported statement");
     return failure();
   }
+
+  return success();
 }
