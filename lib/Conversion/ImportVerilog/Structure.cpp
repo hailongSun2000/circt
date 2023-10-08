@@ -35,7 +35,7 @@ LogicalResult Context::convertCompilation() {
 
   // Convert all the root module definitions.
   while (!moduleWorklist.empty()) {
-    auto module = moduleWorklist.front();
+    auto *module = moduleWorklist.front();
     moduleWorklist.pop();
     if (failed(convertModuleBody(module)))
       return failure();
@@ -60,6 +60,28 @@ Context::convertModuleHeader(const slang::ast::InstanceBodySymbol *module) {
     return nullptr;
   }
 
+  // Handle the port list.
+  LLVM_DEBUG(llvm::dbgs() << "Ports of module " << module->name << "\n");
+  for (auto *symbol : module->getPortList()) {
+    auto portLoc = convertLocation(symbol->location);
+    auto *port = symbol->as_if<slang::ast::PortSymbol>();
+    if (!port) {
+      mlir::emitError(portLoc, "unsupported port: `")
+          << symbol->name << "` (" << slang::ast::toString(symbol->kind) << ")";
+      return nullptr;
+    }
+    LLVM_DEBUG(llvm::dbgs() << "- " << port->name << " "
+                            << slang::ast::toString(port->direction) << "\n");
+    if (auto *intSym = port->internalSymbol) {
+      LLVM_DEBUG(llvm::dbgs() << "  - Internal symbol " << intSym->name << " ("
+                              << slang::ast::toString(intSym->kind) << ")\n");
+    }
+    if (auto *expr = port->getInternalExpr()) {
+      LLVM_DEBUG(llvm::dbgs() << "  - Internal expr "
+                              << slang::ast::toString(expr->kind) << "\n");
+    }
+  }
+
   // Create an empty module that corresponds to this module.
   auto moduleOp = rootBuilder.create<moore::SVModuleOp>(loc, module->name);
   moduleOp.getBody().emplaceBlock();
@@ -79,7 +101,7 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
   llvm::ScopedHashTableScope<StringRef, Value> scope(varSymbolTable);
   LLVM_DEBUG(llvm::dbgs() << "Converting body of module " << module->name
                           << "\n");
-  auto moduleOp = moduleOps.lookup(module);
+  auto *moduleOp = moduleOps.lookup(module);
   assert(moduleOp);
   auto builder =
       OpBuilder::atBlockEnd(&cast<moore::SVModuleOp>(moduleOp).getBodyBlock());
@@ -96,7 +118,7 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     // Handle instances.
     if (member.kind == slang::ast::SymbolKind::Instance) {
       auto &instAst = member.as<slang::ast::InstanceSymbol>();
-      auto targetModule = convertModuleHeader(&instAst.body);
+      auto *targetModule = convertModuleHeader(&instAst.body);
       if (!targetModule)
         return failure();
       builder.create<moore::InstanceOp>(
@@ -106,14 +128,13 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     }
 
     // Handle variables.
-    if (member.kind == slang::ast::SymbolKind::Variable) {
-      auto &varAst = member.as<slang::ast::VariableSymbol>();
-      auto loweredType = convertType(*varAst.getDeclaredType());
+    if (auto *varAst = member.as_if<slang::ast::VariableSymbol>()) {
+      auto loweredType = convertType(*varAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      auto loc = convertLocation(varAst.location);
+      auto loc = convertLocation(varAst->location);
 
-      auto initializer = varAst.getInitializer();
+      auto *initializer = varAst->getInitializer();
       if (initializer) {
         if (initializer->kind == slang::ast::ExpressionKind::NamedValue) {
           if (!varSymbolTable.count(initializer->getSymbolReference()->name)) {
@@ -126,25 +147,25 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
           slang::ast::EvalContext ctx(compilation);
           auto initValue = *initializer->eval(ctx).integer().getRawPtr();
           auto val = builder.create<moore::VariableDeclOp>(
-              loc, moore::LValueType::get(loweredType), varAst.name, initValue);
-          varSymbolTable.insert(varAst.name, val);
+              loc, moore::LValueType::get(loweredType), varAst->name,
+              initValue);
+          varSymbolTable.insert(varAst->name, val);
         }
       } else {
         auto val = builder.create<moore::VariableOp>(
-            loc, moore::LValueType::get(loweredType), varAst.name);
-        varSymbolTable.insert(varAst.name, val);
+            loc, moore::LValueType::get(loweredType), varAst->name);
+        varSymbolTable.insert(varAst->name, val);
       }
       continue;
     }
 
     // Handle Nets.
-    if (member.kind == slang::ast::SymbolKind::Net) {
-      auto &netAst = member.as<slang::ast::NetSymbol>();
-      auto loweredType = convertType(*netAst.getDeclaredType());
+    if (auto *netAst = member.as_if<slang::ast::NetSymbol>()) {
+      auto loweredType = convertType(*netAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      auto loc = convertLocation(netAst.location);
-      auto initializer = netAst.getInitializer();
+      auto loc = convertLocation(netAst->location);
+      auto *initializer = netAst->getInitializer();
 
       if (initializer) {
         if (initializer->kind == slang::ast::ExpressionKind::NamedValue) {
@@ -158,50 +179,49 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
           slang::ast::EvalContext ctx(compilation);
           auto initValue = initializer->eval(ctx).integer().getNumWords();
           Value val = builder.create<moore::VariableDeclOp>(
-              loc, moore::LValueType::get(loweredType), netAst.name, initValue);
-          varSymbolTable.insert(netAst.name, val);
+              loc, moore::LValueType::get(loweredType), netAst->name,
+              initValue);
+          varSymbolTable.insert(netAst->name, val);
         }
       } else {
         Value val = builder.create<moore::VariableOp>(
-            loc, moore::LValueType::get(loweredType), netAst.name);
-        varSymbolTable.insert(netAst.name, val);
+            loc, moore::LValueType::get(loweredType), netAst->name);
+        varSymbolTable.insert(netAst->name, val);
       }
       continue;
     }
 
     // Handle Enum.
-    if (member.kind == slang::ast::SymbolKind::TransparentMember) {
-      auto &enumAst = member.as<slang::ast::TransparentMemberSymbol>().wrapped;
-      auto loweredType = convertType(*enumAst.getDeclaredType());
+    if (auto *enumAst = member.as_if<slang::ast::TransparentMemberSymbol>()) {
+      auto loweredType = convertType(*enumAst->wrapped.getDeclaredType());
       if (!loweredType)
         return failure();
-      builder.create<moore::VariableOp>(convertLocation(enumAst.location),
-                                        loweredType, enumAst.name);
+      builder.create<moore::VariableOp>(
+          convertLocation(enumAst->wrapped.location), loweredType,
+          enumAst->wrapped.name);
       continue;
     }
 
     // Handle AssignOp.
-    if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
-      auto &assignAst = member.as<slang::ast::ContinuousAssignSymbol>();
-      auto assignment = &assignAst.getAssignment();
+    if (auto *assignAst = member.as_if<slang::ast::ContinuousAssignSymbol>()) {
+      auto *assignment = &assignAst->getAssignment();
       visitExpression(assignment);
       continue;
     }
 
     // Handle ProceduralBlock.
-    if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
-      auto &procAst = member.as<slang::ast::ProceduralBlockSymbol>();
-      auto loc = convertLocation(procAst.location);
-      switch (procAst.procedureKind) {
+    if (auto *procAst = member.as_if<slang::ast::ProceduralBlockSymbol>()) {
+      auto loc = convertLocation(procAst->location);
+      switch (procAst->procedureKind) {
       case slang::ast::ProceduralBlockKind::AlwaysComb:
         rootBuilder.setInsertionPointToEnd(
             &builder.create<moore::AlwaysCombOp>(loc).getBodyBlock());
-        convertStatement(&procAst.getBody());
+        convertStatement(&procAst->getBody());
         break;
       case slang::ast::ProceduralBlockKind::Initial:
         rootBuilder.setInsertionPointToEnd(
             &builder.create<moore::InitialOp>(loc).getBodyBlock());
-        convertStatement(&procAst.getBody());
+        convertStatement(&procAst->getBody());
         break;
       case slang::ast::ProceduralBlockKind::AlwaysLatch:
         return mlir::emitError(loc,
