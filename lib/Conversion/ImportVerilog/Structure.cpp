@@ -15,6 +15,7 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
+#include <slang/ast/expressions/AssignmentExpressions.h>
 
 using namespace circt;
 using namespace ImportVerilog;
@@ -111,18 +112,17 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
                << "- Handling " << slang::ast::toString(member.kind) << "\n");
     auto loc = convertLocation(member.location);
 
-    // Skip parameters.
+    // Skip parameters. The AST is already monomorphized.
     if (member.kind == slang::ast::SymbolKind::Parameter)
       continue;
 
     // Handle instances.
-    if (member.kind == slang::ast::SymbolKind::Instance) {
-      auto &instAst = member.as<slang::ast::InstanceSymbol>();
-      auto *targetModule = convertModuleHeader(&instAst.body);
+    if (auto *instAst = member.as_if<slang::ast::InstanceSymbol>()) {
+      auto *targetModule = convertModuleHeader(&instAst->body);
       if (!targetModule)
         return failure();
       builder.create<moore::InstanceOp>(
-          loc, builder.getStringAttr(instAst.name),
+          loc, builder.getStringAttr(instAst->name),
           FlatSymbolRefAttr::get(SymbolTable::getSymbolName(targetModule)));
       continue;
     }
@@ -204,8 +204,9 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
 
     // Handle AssignOp.
     if (auto *assignAst = member.as_if<slang::ast::ContinuousAssignSymbol>()) {
-      auto *assignment = &assignAst->getAssignment();
-      visitExpression(assignment);
+      rootBuilder.setInsertionPointToEnd(builder.getBlock());
+      visitAssignmentExpr(
+          &assignAst->getAssignment().as<slang::ast::AssignmentExpression>());
       continue;
     }
 
@@ -243,7 +244,6 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
 
     mlir::emitError(loc, "unsupported module member: ")
         << slang::ast::toString(member.kind);
-    return failure();
   }
 
   return success();
