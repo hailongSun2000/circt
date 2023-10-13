@@ -56,13 +56,17 @@ struct Context {
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
 
   LogicalResult convertStatement(const slang::ast::Statement *statement);
+
+  LogicalResult
+  visitConditionalStmt(const slang::ast::ConditionalStatement *conditionalStmt);
+
   Value visitExpression(const slang::ast::Expression *expression);
 
   Value
   visitIntegerLiteral(const slang::ast::IntegerLiteral *integerLiteralExpr);
   Value visitNamedValue(const slang::ast::NamedValueExpression *namedValueExpr);
   Value visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr);
-  LogicalResult
+  Value
   visitAssignmentExpr(const slang::ast::AssignmentExpression *assignmentExpr);
   Value visitConversion(const slang::ast::ConversionExpression *conversionExpr,
                         const slang::ast::Type &type);

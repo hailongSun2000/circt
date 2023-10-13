@@ -15,7 +15,6 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
-#include <slang/ast/expressions/AssignmentExpressions.h>
 
 using namespace circt;
 using namespace ImportVerilog;
@@ -149,7 +148,8 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
           auto val = builder.create<moore::VariableDeclOp>(
               loc, moore::LValueType::get(loweredType), varAst->name,
               initValue);
-          varSymbolTable.insert(varAst->name, val);
+          rootBuilder.setInsertionPointAfterValue(val);
+          varSymbolTable.insert(varAst->name, visitExpression(initializer));
         }
       } else {
         auto val = builder.create<moore::VariableOp>(
@@ -181,7 +181,8 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
           Value val = builder.create<moore::VariableDeclOp>(
               loc, moore::LValueType::get(loweredType), netAst->name,
               initValue);
-          varSymbolTable.insert(netAst->name, val);
+          rootBuilder.setInsertionPointAfterValue(val);
+          varSymbolTable.insert(netAst->name, visitExpression(initializer));
         }
       } else {
         Value val = builder.create<moore::VariableOp>(

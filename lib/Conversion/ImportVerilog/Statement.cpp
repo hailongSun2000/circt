@@ -19,6 +19,25 @@
 using namespace circt;
 using namespace ImportVerilog;
 
+LogicalResult Context::visitConditionalStmt(
+    const slang::ast::ConditionalStatement *conditionalStmt) {
+  auto loc = convertLocation(conditionalStmt->sourceRange.start());
+
+  Value cond = visitExpression(conditionalStmt->conditions.begin()->expr);
+
+  auto ifOp = rootBuilder.create<moore::IfOp>(
+      loc, cond, [&]() { convertStatement(&conditionalStmt->ifTrue); },
+      [&]() {});
+  if (ifOp.hasElse()) {
+    rootBuilder.setInsertionPointToEnd(ifOp.getElseBlock());
+    if (conditionalStmt->ifFalse)
+      convertStatement(conditionalStmt->ifFalse);
+    else
+      ifOp.getElseBlock()->erase();
+  }
+  return success();
+}
+
 // It can handle the statements like case, conditional(if), for loop, and etc.
 LogicalResult
 Context::convertStatement(const slang::ast::Statement *statement) {
@@ -86,7 +105,8 @@ Context::convertStatement(const slang::ast::Statement *statement) {
   case slang::ast::StatementKind::ProceduralChecker:
     return mlir::emitError(loc, "unsupported statement: procedural checker");
   case slang::ast::StatementKind::Conditional:
-    return mlir::emitError(loc, "unsupported statement: conditional");
+    visitConditionalStmt(&statement->as<slang::ast::ConditionalStatement>());
+    break;
   default:
     mlir::emitRemark(loc, "unsupported statement");
     return failure();

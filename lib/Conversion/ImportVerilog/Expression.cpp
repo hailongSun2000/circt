@@ -22,8 +22,7 @@ using namespace ImportVerilog;
 // Detail processing about integer literal.
 Value Context::visitIntegerLiteral(
     const slang::ast::IntegerLiteral *integerLiteralExpr) {
-  auto srcValue = rootBuilder.getI32IntegerAttr(
-      integerLiteralExpr->getValue().as<int32_t>().value());
+  auto srcValue = integerLiteralExpr->getValue().as<uint32_t>().value();
   return rootBuilder.create<moore::ConstantOp>(
       convertLocation(integerLiteralExpr->sourceRange.start()),
       convertType(*integerLiteralExpr->type), srcValue);
@@ -33,27 +32,33 @@ Value Context::visitIntegerLiteral(
 Value Context::visitNamedValue(
     const slang::ast::NamedValueExpression *namedValueExpr) {
   auto destName = namedValueExpr->getSymbolReference()->name;
+  // auto destLoc = namedValueExpr->getSymbolReference()->location;
+  // if () {
+  // return rootBuilder.create<moore::VariableOp>(
+  //     convertLocation(destLoc),
+  //     moore::LValueType::get(convertType(*namedValueExpr->type)), destName);
+  // }
   return varSymbolTable.lookup(destName);
 }
 
 // Detail processing about assignment.
-LogicalResult Context::visitAssignmentExpr(
+Value Context::visitAssignmentExpr(
     const slang::ast::AssignmentExpression *assignmentExpr) {
   auto loc = convertLocation(assignmentExpr->sourceRange.start());
   Value lhs = visitExpression(&assignmentExpr->left());
   if (!lhs)
-    return failure();
+    return nullptr;
   Value rhs = visitExpression(&assignmentExpr->right());
   if (!rhs)
-    return failure();
-  if (assignmentExpr->right().kind == slang::ast::ExpressionKind::NamedValue) {
-    mlir::emitError(loc, "unsupported assignment of kind like a = b");
-    return failure();
-  }
+    return nullptr;
+  //   if (assignmentExpr->right().as_if<slang::ast::NamedValueExpression>()) {
+  //     mlir::emitError(loc, "unsupported assignment of kind like a = b");
+  //     return failure();
+  //   }
   rootBuilder.create<moore::AssignOp>(loc, lhs, rhs);
   auto lhsName = assignmentExpr->left().getSymbolReference()->name;
   varSymbolTable.insert(lhsName, rhs);
-  return success();
+  return varSymbolTable.lookup(lhsName);
 }
 
 // Detail processing about conversion
@@ -106,8 +111,8 @@ Value Context::visitExpression(const slang::ast::Expression *expression) {
   case slang::ast::ExpressionKind::NamedValue:
     return visitNamedValue(&expression->as<slang::ast::NamedValueExpression>());
   case slang::ast::ExpressionKind::Assignment:
-    visitAssignmentExpr(&expression->as<slang::ast::AssignmentExpression>());
-    break;
+    return visitAssignmentExpr(
+        &expression->as<slang::ast::AssignmentExpression>());
   case slang::ast::ExpressionKind::Conversion:
     return visitConversion(&expression->as<slang::ast::ConversionExpression>(),
                            *expression->type);
