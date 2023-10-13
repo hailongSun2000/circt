@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+// NOLINTNEXTLINE(llvm-header-guard)
 #ifndef CONVERSION_IMPORTVERILOG_IMPORTVERILOGINTERNALS_H
 #define CONVERSION_IMPORTVERILOG_IMPORTVERILOGINTERNALS_H
 
@@ -30,10 +31,9 @@ namespace ImportVerilog {
 struct Context {
   Context(mlir::ModuleOp intoModuleOp,
           const slang::SourceManager &sourceManager,
-          std::function<StringRef(slang::BufferID)> getBufferFilePath,
-          slang::ast::Compilation &compilation)
+          std::function<StringRef(slang::BufferID)> getBufferFilePath)
       : intoModuleOp(intoModuleOp), sourceManager(sourceManager),
-        getBufferFilePath(getBufferFilePath), compilation(compilation),
+        getBufferFilePath(std::move(getBufferFilePath)),
         rootBuilder(OpBuilder::atBlockEnd(intoModuleOp.getBody())),
         symbolTable(intoModuleOp) {}
   Context(const Context &) = delete;
@@ -51,7 +51,7 @@ struct Context {
   Type convertType(const slang::ast::Type &type, LocationAttr loc = {});
   Type convertType(const slang::ast::DeclaredType &type);
 
-  LogicalResult convertCompilation();
+  LogicalResult convertCompilation(slang::ast::Compilation &compilation);
   Operation *convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
 
@@ -74,7 +74,6 @@ struct Context {
   mlir::ModuleOp intoModuleOp;
   const slang::SourceManager &sourceManager;
   std::function<StringRef(slang::BufferID)> getBufferFilePath;
-  slang::ast::Compilation &compilation;
 
   /// A builder for modules and other top-level ops.
   OpBuilder rootBuilder;

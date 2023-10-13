@@ -12,8 +12,8 @@
 
 #include "circt/Dialect/Moore/MooreOps.h"
 #include "circt/Support/CustomDirectiveImpl.h"
+#include "circt/Support/LLVM.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Value.h"
 
 using namespace circt;
 using namespace circt::moore;
@@ -98,12 +98,10 @@ void InitialOp::build(OpBuilder &builder, OperationState &result,
 // Type Inference
 //===----------------------------------------------------------------------===//
 
-LogicalResult ConcatOp::inferReturnTypes(MLIRContext *context,
-                                         std::optional<Location> loc,
-                                         ValueRange operands,
-                                         DictionaryAttr attrs,
-                                         mlir::RegionRange regions,
-                                         SmallVectorImpl<Type> &results) {
+LogicalResult ConcatOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attrs, mlir::OpaqueProperties properties,
+    mlir::RegionRange regions, SmallVectorImpl<Type> &results) {
   Domain domain = Domain::TwoValued;
   unsigned size = 0;
   for (auto operand : operands) {

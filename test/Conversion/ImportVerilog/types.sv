@@ -1,4 +1,16 @@
-// RUN: circt-translate --import-verilog %s
+// RUN: circt-translate --import-verilog %s | FileCheck %s
+
+// CHECK-LABEL: moore.module @Enums
+module Enums;
+  typedef enum shortint { MAGIC } myEnum;
+
+  // CHECK-NEXT: %e0 = moore.variable : !moore.enum<int, loc(
+  // CHECK-NEXT: %e1 = moore.variable : !moore.enum<byte, loc(
+  // CHECK-NEXT: %e2 = moore.variable : !moore.packed<named<"myEnum", enum<shortint, loc(
+  enum { FOO, BAR } e0;
+  enum byte { HELLO = 0, WORLD = 1 } e1;
+  myEnum e2;
+endmodule
 
 // CHECK-LABEL: moore.module @IntAtoms
 module IntAtoms;
@@ -108,20 +120,46 @@ module RealType;
   shortreal d2;
 endmodule
 
+// CHECK-LABEL: moore.module @Structs
+module Structs;
+  typedef struct packed { byte a; int b; } myStructA;
+  typedef struct { byte x; int y; } myStructB;
+
+  // CHECK-NEXT: %s0 = moore.variable : !moore.packed<struct<{foo: bit loc({{.+}}), bar: logic loc({{.+}})}, loc({{.+}})>>
+  // CHECK-NEXT: %s1 = moore.variable : !moore.unpacked<struct<{many: assoc<bit, int> loc({{.+}})}, loc({{.+}})>>
+  // CHECK-NEXT: %s2 = moore.variable : !moore.packed<named<"myStructA", struct<{a: byte loc({{.+}}), b: int loc({{.+}})}, loc({{.+}})>, loc({{.+}})>>
+  // CHECK-NEXT: %s3 = moore.variable : !moore.unpacked<named<"myStructB", struct<{x: byte loc({{.+}}), y: int loc({{.+}})}, loc({{.+}})>, loc({{.+}})>>
+  struct packed { bit foo; logic bar; } s0;
+  struct { bit many[int]; } s1;
+  myStructA s2;
+  myStructB s3;
+endmodule
+
+// CHECK-LABEL: moore.module @Typedefs
+module Typedefs;
+  typedef logic [2:0] myType1;
+  typedef logic myType2 [2:0];
+
+  // CHECK-NEXT: %v0 = moore.variable : !moore.packed<named<"myType1", range<logic, 2:0>, loc(
+  // CHECK-NEXT: %v1 = moore.variable : !moore.unpacked<named<"myType2", range<logic, 2:0>, loc(
+  myType1 v0;
+  myType2 v1;
+endmodule
+
 // CHECK-LABEL: moore.module @UnpackedAssocDim
 module UnpackedAssocDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<assoc<logic, int>>
   // CEECK-NEXT: %d1 = moore.variable : !moore.unpacked<assoc<logic, logic>>
   logic d0 [int];
   logic d1 [logic];
-endmodule
+endmodule;
 
 // CHECK-LABEL: moore.module @UnpackedQueueDim
 module UnpackedQueueDim;
-  // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<queue<logic, 0>>
-  // CHECK-NEXT: %d1 = moore.variable : !moore.unpacked<queue<logic, 2>>
-  logic d0 [$];
-  logic d1 [$:2];
+  //CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<queue<logic, 0>>
+  //CHECK-NEXT: %d1 = moore.variable : !moore.unpacked<queue<logic, 2>>
+  logic d0[$];
+  logic d1[$:2];
 endmodule
 
 // CHECK-LABEL: moore.module @UnpackedRangeDim
@@ -137,4 +175,3 @@ module UnpackedUnsizedDim;
   // CHECK-NEXT: %d0 = moore.variable : !moore.unpacked<unsized<logic>>
   logic d0 [];
 endmodule
-

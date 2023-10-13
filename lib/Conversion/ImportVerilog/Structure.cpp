@@ -15,11 +15,14 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
+#include <slang/ast/Compilation.h>
+#include <slang/ast/EvalContext.h>
 
 using namespace circt;
 using namespace ImportVerilog;
 
-LogicalResult Context::convertCompilation() {
+LogicalResult
+Context::convertCompilation(slang::ast::Compilation &compilation) {
   auto &root = compilation.getRoot();
 
   // Visit all the compilation units. This will mainly cover non-instantiable
@@ -115,6 +118,12 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     if (member.kind == slang::ast::SymbolKind::Parameter)
       continue;
 
+    // Skip type-related declarations. These are absorbedby the types.
+    if (member.kind == slang::ast::SymbolKind::TypeAlias ||
+        member.kind == slang::ast::SymbolKind::TypeParameter ||
+        member.kind == slang::ast::SymbolKind::TransparentMember)
+      continue;
+
     // Handle instances.
     if (auto *instAst = member.as_if<slang::ast::InstanceSymbol>()) {
       auto *targetModule = convertModuleHeader(&instAst->body);
@@ -143,13 +152,12 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
           }
           mlir::emitError(loc, "unsupported variable declaration");
         } else {
-          slang::ast::EvalContext ctx(compilation);
-          auto initValue = *initializer->eval(ctx).integer().getRawPtr();
-          auto val = builder.create<moore::VariableDeclOp>(
-              loc, moore::LValueType::get(loweredType), varAst->name,
-              initValue);
-          rootBuilder.setInsertionPointAfterValue(val);
-          varSymbolTable.insert(varAst->name, visitExpression(initializer));
+          // auto initValue = *initializer->eval().integer().getRawPtr();
+          // auto val = builder.create<moore::VariableDeclOp>(
+          //     loc, moore::LValueType::get(loweredType), varAst->name,
+          //     initValue);
+          // rootBuilder.setInsertionPointAfterValue(val);
+          // varSymbolTable.insert(varAst->name, visitExpression(initializer));
         }
       } else {
         auto val = builder.create<moore::VariableOp>(
@@ -176,13 +184,12 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
           }
           mlir::emitError(loc, "unsupported variable declaration");
         } else {
-          slang::ast::EvalContext ctx(compilation);
-          auto initValue = initializer->eval(ctx).integer().getNumWords();
-          Value val = builder.create<moore::VariableDeclOp>(
-              loc, moore::LValueType::get(loweredType), netAst->name,
-              initValue);
-          rootBuilder.setInsertionPointAfterValue(val);
-          varSymbolTable.insert(netAst->name, visitExpression(initializer));
+          // auto initValue = initializer->eval().integer().getNumWords();
+          // Value val = builder.create<moore::VariableDeclOp>(
+          //     loc, moore::LValueType::get(loweredType), netAst->name,
+          //     initValue);
+          // rootBuilder.setInsertionPointAfterValue(val);
+          // varSymbolTable.insert(netAst->name, visitExpression(initializer));
         }
       } else {
         Value val = builder.create<moore::VariableOp>(
