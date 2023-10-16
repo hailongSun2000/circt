@@ -19,7 +19,6 @@
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxVisitor.h"
 #include "slang/text/SourceManager.h"
-#include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/Support/Debug.h"
 #include <queue>
 
@@ -79,12 +78,6 @@ struct Context {
   OpBuilder rootBuilder;
   /// A symbol table of the MLIR module we are emitting into.
   SymbolTable symbolTable;
-
-  /// The symbol table maps a variable name to a value in the current scope.
-  /// Entering a function creates a new scope, and the function arguments are
-  /// added to the mapping. When the processing of a function is terminated, the
-  /// scope is destroyed and the mappings created in this scope are dropped.
-  llvm::ScopedHashTable<StringRef, mlir::Value> varSymbolTable;
 
   /// How we have lowered modules to MLIR.
   DenseMap<const slang::ast::InstanceBodySymbol *, Operation *> moduleOps;

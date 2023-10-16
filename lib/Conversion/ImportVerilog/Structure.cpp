@@ -15,8 +15,6 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
-#include <slang/ast/Compilation.h>
-#include <slang/ast/EvalContext.h>
 
 using namespace circt;
 using namespace ImportVerilog;
@@ -101,7 +99,6 @@ Context::convertModuleHeader(const slang::ast::InstanceBodySymbol *module) {
 
 LogicalResult
 Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
-  llvm::ScopedHashTableScope<StringRef, Value> scope(varSymbolTable);
   LLVM_DEBUG(llvm::dbgs() << "Converting body of module " << module->name
                           << "\n");
   auto *moduleOp = moduleOps.lookup(module);
@@ -140,30 +137,9 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loweredType = convertType(*varAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      auto loc = convertLocation(varAst->location);
-
-      auto *initializer = varAst->getInitializer();
-      if (initializer) {
-        if (initializer->kind == slang::ast::ExpressionKind::NamedValue) {
-          if (!varSymbolTable.count(initializer->getSymbolReference()->name)) {
-            mlir::emitError(loc, "unknown variable '")
-                << initializer->getSymbolReference()->name << "'";
-            continue;
-          }
-          mlir::emitError(loc, "unsupported variable declaration");
-        } else {
-          // auto initValue = *initializer->eval().integer().getRawPtr();
-          // auto val = builder.create<moore::VariableDeclOp>(
-          //     loc, moore::LValueType::get(loweredType), varAst->name,
-          //     initValue);
-          // rootBuilder.setInsertionPointAfterValue(val);
-          // varSymbolTable.insert(varAst->name, visitExpression(initializer));
-        }
-      } else {
-        auto val = builder.create<moore::VariableOp>(
-            loc, moore::LValueType::get(loweredType), varAst->name);
-        varSymbolTable.insert(varAst->name, val);
-      }
+      builder.create<moore::VariableOp>(convertLocation(varAst->location),
+                                        loweredType,
+                                        builder.getStringAttr(varAst->name));
       continue;
     }
 
@@ -172,41 +148,9 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loweredType = convertType(*netAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      auto loc = convertLocation(netAst->location);
-      auto *initializer = netAst->getInitializer();
-
-      if (initializer) {
-        if (initializer->kind == slang::ast::ExpressionKind::NamedValue) {
-          if (!varSymbolTable.count(initializer->getSymbolReference()->name)) {
-            mlir::emitError(loc, "unknown variable '")
-                << initializer->getSymbolReference()->name << "'";
-            continue;
-          }
-          mlir::emitError(loc, "unsupported variable declaration");
-        } else {
-          // auto initValue = initializer->eval().integer().getNumWords();
-          // Value val = builder.create<moore::VariableDeclOp>(
-          //     loc, moore::LValueType::get(loweredType), netAst->name,
-          //     initValue);
-          // rootBuilder.setInsertionPointAfterValue(val);
-          // varSymbolTable.insert(netAst->name, visitExpression(initializer));
-        }
-      } else {
-        Value val = builder.create<moore::VariableOp>(
-            loc, moore::LValueType::get(loweredType), netAst->name);
-        varSymbolTable.insert(netAst->name, val);
-      }
-      continue;
-    }
-
-    // Handle Enum.
-    if (auto *enumAst = member.as_if<slang::ast::TransparentMemberSymbol>()) {
-      auto loweredType = convertType(*enumAst->wrapped.getDeclaredType());
-      if (!loweredType)
-        return failure();
-      builder.create<moore::VariableOp>(
-          convertLocation(enumAst->wrapped.location), loweredType,
-          enumAst->wrapped.name);
+      builder.create<moore::VariableOp>(convertLocation(netAst->location),
+                                        loweredType,
+                                        builder.getStringAttr(netAst->name));
       continue;
     }
 

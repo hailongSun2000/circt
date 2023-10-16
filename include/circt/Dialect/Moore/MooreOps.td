@@ -49,9 +49,9 @@ def VariableOp : MooreOp<"variable", [
 ]> {
   let summary = "Declare a variable";
   let arguments = (ins StrAttr:$name);
-  let results = (outs MooreLValueType:$result);
+  let results = (outs UnpackedType:$result);
   let assemblyFormat = [{
-    `` custom<ImplicitSSAName>($name) attr-dict `:` custom<LValueType>(type($result))
+    `` custom<ImplicitSSAName>($name) attr-dict `:` type($result)
   }];
 }
 

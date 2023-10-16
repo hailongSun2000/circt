@@ -22,8 +22,9 @@ using namespace ImportVerilog;
 LogicalResult Context::visitConditionalStmt(
     const slang::ast::ConditionalStatement *conditionalStmt) {
   auto loc = convertLocation(conditionalStmt->sourceRange.start());
-
   Value cond = visitExpression(conditionalStmt->conditions.begin()->expr);
+  if (!cond)
+    return failure();
 
   auto ifOp = rootBuilder.create<moore::IfOp>(
       loc, cond, [&]() { convertStatement(&conditionalStmt->ifTrue); },
@@ -102,8 +103,6 @@ Context::convertStatement(const slang::ast::Statement *statement) {
     return mlir::emitError(loc, "unsupported statement: rand case");
   case slang::ast::StatementKind::RandSequence:
     return mlir::emitError(loc, "unsupported statement: rand sequence");
-  case slang::ast::StatementKind::ProceduralChecker:
-    return mlir::emitError(loc, "unsupported statement: procedural checker");
   case slang::ast::StatementKind::Conditional:
     visitConditionalStmt(&statement->as<slang::ast::ConditionalStatement>());
     break;

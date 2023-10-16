@@ -31,14 +31,8 @@ Value Context::visitIntegerLiteral(
 // Detail processing about named value.
 Value Context::visitNamedValue(
     const slang::ast::NamedValueExpression *namedValueExpr) {
-  auto destName = namedValueExpr->getSymbolReference()->name;
-  // auto destLoc = namedValueExpr->getSymbolReference()->location;
-  // if () {
-  // return rootBuilder.create<moore::VariableOp>(
-  //     convertLocation(destLoc),
-  //     moore::LValueType::get(convertType(*namedValueExpr->type)), destName);
-  // }
-  return varSymbolTable.lookup(destName);
+  // TODO:
+  return nullptr;
 }
 
 // Detail processing about assignment.
@@ -51,14 +45,13 @@ Value Context::visitAssignmentExpr(
   Value rhs = visitExpression(&assignmentExpr->right());
   if (!rhs)
     return nullptr;
-  //   if (assignmentExpr->right().as_if<slang::ast::NamedValueExpression>()) {
-  //     mlir::emitError(loc, "unsupported assignment of kind like a = b");
-  //     return failure();
-  //   }
+  // TODO:
+  if (assignmentExpr->right().as_if<slang::ast::NamedValueExpression>()) {
+    mlir::emitError(loc, "unsupported assignment of kind like a = b");
+    return nullptr;
+  }
   rootBuilder.create<moore::AssignOp>(loc, lhs, rhs);
-  auto lhsName = assignmentExpr->left().getSymbolReference()->name;
-  varSymbolTable.insert(lhsName, rhs);
-  return varSymbolTable.lookup(lhsName);
+  return nullptr;
 }
 
 // Detail processing about conversion
@@ -68,6 +61,9 @@ Value Context::visitConversion(
   auto loc = convertLocation(conversionExpr->sourceRange.start());
   switch (conversionExpr->operand().kind) {
   case slang::ast::ExpressionKind::IntegerLiteral:
+    // For assignment, which formation of the right hand is
+    // {coversion(logic){conversion(logic signed [31:0]){IntegerLiteral(int)}}}
+    // to make sure the type is the same on both sides of the equation.
     return rootBuilder.create<moore::ConstantOp>(
         loc, convertType(type),
         conversionExpr->operand()
