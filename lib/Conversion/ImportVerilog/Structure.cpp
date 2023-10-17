@@ -194,6 +194,10 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
+    // Otherwise just report that we don't support this SV construct yet and
+    // skip over it. We'll want to make this an error, but in the early phases
+    // we'll just want to cover ground as quickly as possible and skip over
+    // things we don't support.
     mlir::emitError(loc, "unsupported module member: ")
         << slang::ast::toString(member.kind);
   }
