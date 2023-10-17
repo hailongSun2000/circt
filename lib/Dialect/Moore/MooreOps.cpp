@@ -12,7 +12,6 @@
 
 #include "circt/Dialect/Moore/MooreOps.h"
 #include "circt/Support/CustomDirectiveImpl.h"
-#include "circt/Support/LLVM.h"
 #include "mlir/IR/Builders.h"
 
 using namespace circt;
