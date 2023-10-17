@@ -198,7 +198,7 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     // skip over it. We'll want to make this an error, but in the early phases
     // we'll just want to cover ground as quickly as possible and skip over
     // things we don't support.
-    mlir::emitError(loc, "unsupported module member: ")
+    mlir::emitWarning(loc, "unsupported construct ignored: ")
         << slang::ast::toString(member.kind);
   }
 
