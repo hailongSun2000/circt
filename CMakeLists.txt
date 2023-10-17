@@ -555,7 +555,7 @@ endif()
 
 option(CIRCT_SLANG_FRONTEND_ENABLED "Enables slang Verilog frontend." ON)
 option(CIRCT_SLANG_BUILD_FROM_SOURCE
-  "Build slang from source instead of finding an installed package" OFF)
+  "Build slang from source instead of finding an installed package" ON)
 
 llvm_canonicalize_cmake_booleans(CIRCT_SLANG_FRONTEND_ENABLED)
 if(CIRCT_SLANG_FRONTEND_ENABLED)
