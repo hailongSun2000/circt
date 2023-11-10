@@ -59,16 +59,37 @@ struct Context {
   LogicalResult
   visitConditionalStmt(const slang::ast::ConditionalStatement *conditionalStmt);
 
-  Value visitExpression(const slang::ast::Expression *expression);
+  Value visitExpression(const slang::ast::Expression *expression,
+                        const slang::ast::Type &type);
 
   Value
-  visitIntegerLiteral(const slang::ast::IntegerLiteral *integerLiteralExpr);
-  Value visitNamedValue(const slang::ast::NamedValueExpression *namedValueExpr);
-  Value visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr);
+  visitIntegerLiteral(const slang::ast::IntegerLiteral *integerLiteralExpr,
+                      const slang::ast::Type &type);
+  Value visitNamedValue(const slang::ast::NamedValueExpression *namedValueExpr,
+                        const slang::ast::Type &type);
+  Value visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
+                      const slang::ast::Type &type);
   Value
-  visitAssignmentExpr(const slang::ast::AssignmentExpression *assignmentExpr);
+  visitAssignmentExpr(const slang::ast::AssignmentExpression *assignmentExpr,
+                      const slang::ast::Type &type);
   Value visitConversion(const slang::ast::ConversionExpression *conversionExpr,
                         const slang::ast::Type &type);
+
+  LogicalResult
+  visitTimingControl(const slang::ast::TimingControl *timingControl);
+
+  LogicalResult visitDelay(const slang::ast::DelayControl *delay);
+  LogicalResult visitDelay3(const slang::ast::Delay3Control *delay3);
+  LogicalResult
+  visitSignalEvent(const slang::ast::SignalEventControl *signalEventControl);
+  LogicalResult
+  visitImplicitEvent(const slang::ast::ImplicitEventControl *implEventControl);
+  LogicalResult visitRepeatedEvent(
+      const slang::ast::RepeatedEventControl *repeatedEventControl);
+  LogicalResult
+  visitOneStepDelay(const slang::ast::OneStepDelayControl *oneStepDelayControl);
+  LogicalResult
+  visitCycleDelay(const slang::ast::CycleDelayControl *cycleDelayControl);
 
   mlir::ModuleOp intoModuleOp;
   const slang::SourceManager &sourceManager;
@@ -78,6 +99,13 @@ struct Context {
   OpBuilder rootBuilder;
   /// A symbol table of the MLIR module we are emitting into.
   SymbolTable symbolTable;
+
+  /// A symbol table of declared or defined variables. Like logic a = 1;
+  /// In varSymbolTable, the form is (a,(a,1)). Although there are two `a`
+  /// in symbol table, the first type of a is StringRef,
+  /// or the second is Value created by the moore::VariableDeclOp.
+  /// If it's logic a; The form will be (a,(a,NULL)).
+  DenseMap<StringRef, std::pair<Value, Value>> varSymbolTable;
 
   /// How we have lowered modules to MLIR.
   DenseMap<const slang::ast::InstanceBodySymbol *, Operation *> moduleOps;

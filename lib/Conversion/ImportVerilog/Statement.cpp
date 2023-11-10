@@ -22,21 +22,8 @@ using namespace ImportVerilog;
 LogicalResult Context::visitConditionalStmt(
     const slang::ast::ConditionalStatement *conditionalStmt) {
   auto loc = convertLocation(conditionalStmt->sourceRange.start());
-  Value cond = visitExpression(conditionalStmt->conditions.begin()->expr);
-  if (!cond)
-    return failure();
 
-  auto ifOp = rootBuilder.create<moore::IfOp>(
-      loc, cond, [&]() { convertStatement(&conditionalStmt->ifTrue); },
-      [&]() {});
-  if (ifOp.hasElse()) {
-    rootBuilder.setInsertionPointToEnd(ifOp.getElseBlock());
-    if (conditionalStmt->ifFalse)
-      convertStatement(conditionalStmt->ifFalse);
-    else
-      ifOp.getElseBlock()->erase();
-  }
-  return success();
+  return mlir::emitError(loc, "unsupported statement: conditional");
 }
 
 // It can handle the statements like case, conditional(if), for loop, and etc.
@@ -53,7 +40,9 @@ Context::convertStatement(const slang::ast::Statement *statement) {
     convertStatement(&statement->as<slang::ast::BlockStatement>().body);
     break;
   case slang::ast::StatementKind::ExpressionStatement:
-    visitExpression(&statement->as<slang::ast::ExpressionStatement>().expr);
+    visitExpression(
+        &statement->as<slang::ast::ExpressionStatement>().expr,
+        *statement->as<slang::ast::ExpressionStatement>().expr.type);
     break;
   case slang::ast::StatementKind::VariableDeclaration:
     return mlir::emitError(loc, "unsupported statement: variable declaration");
@@ -80,6 +69,9 @@ Context::convertStatement(const slang::ast::Statement *statement) {
   case slang::ast::StatementKind::ForeverLoop:
     return mlir::emitError(loc, "unsupported statement: forever loop");
   case slang::ast::StatementKind::Timed:
+    visitTimingControl(&statement->as<slang::ast::TimedStatement>().timing);
+    convertStatement(&statement->as<slang::ast::TimedStatement>().stmt);
+    break;
     return mlir::emitError(loc, "unsupported statement: timed");
   case slang::ast::StatementKind::ImmediateAssertion:
     return mlir::emitError(loc, "unsupported statement: immediate assertion");
@@ -96,7 +88,12 @@ Context::convertStatement(const slang::ast::Statement *statement) {
   case slang::ast::StatementKind::EventTrigger:
     return mlir::emitError(loc, "unsupported statement: event trigger");
   case slang::ast::StatementKind::ProceduralAssign:
-    return mlir::emitError(loc, "unsupported statement: procedural assign");
+    visitExpression(
+        &statement->as<slang::ast::ProceduralAssignStatement>().assignment,
+        *statement->as<slang::ast::ProceduralAssignStatement>()
+             .assignment.type);
+    break;
+    // return mlir::emitError(loc, "unsupported statement: procedural assign");
   case slang::ast::StatementKind::ProceduralDeassign:
     return mlir::emitError(loc, "unsupported statement: procedural deassign");
   case slang::ast::StatementKind::RandCase:

@@ -154,43 +154,36 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       continue;
     }
 
+    // Handle Ports.
+    if (auto *portAst = member.as_if<slang::ast::PortSymbol>()) {
+      auto loweredType = convertType(portAst->getType());
+      if (!loweredType)
+        return failure();
+      builder.create<moore::PortOp>(
+          convertLocation(portAst->location),
+          builder.getStringAttr(portAst->name),
+          static_cast<moore::Direction>(portAst->direction));
+      continue;
+    }
+
     // Handle AssignOp.
     if (auto *assignAst = member.as_if<slang::ast::ContinuousAssignSymbol>()) {
       rootBuilder.setInsertionPointToEnd(builder.getBlock());
       visitAssignmentExpr(
-          &assignAst->getAssignment().as<slang::ast::AssignmentExpression>());
+          &assignAst->getAssignment().as<slang::ast::AssignmentExpression>(),
+          *assignAst->getAssignment().type);
       continue;
     }
 
     // Handle ProceduralBlock.
     if (auto *procAst = member.as_if<slang::ast::ProceduralBlockSymbol>()) {
       auto loc = convertLocation(procAst->location);
-      switch (procAst->procedureKind) {
-      case slang::ast::ProceduralBlockKind::AlwaysComb:
-        rootBuilder.setInsertionPointToEnd(
-            &builder.create<moore::AlwaysCombOp>(loc).getBodyBlock());
-        convertStatement(&procAst->getBody());
-        break;
-      case slang::ast::ProceduralBlockKind::Initial:
-        rootBuilder.setInsertionPointToEnd(
-            &builder.create<moore::InitialOp>(loc).getBodyBlock());
-        convertStatement(&procAst->getBody());
-        break;
-      case slang::ast::ProceduralBlockKind::AlwaysLatch:
-        return mlir::emitError(loc,
-                               "unsupported procedural block: always latch");
-      case slang::ast::ProceduralBlockKind::AlwaysFF:
-        return mlir::emitError(
-            loc, "unsupported procedural block: always flip-flop");
-      case slang::ast::ProceduralBlockKind::Always:
-        return mlir::emitError(loc, "unsupported procedural block: always");
-      case slang::ast::ProceduralBlockKind::Final:
-        return mlir::emitError(loc, "unsupported procedural block: final");
-      default:
-        mlir::emitError(loc, "unsupported procedural block");
-        return failure();
-      }
-
+      rootBuilder.setInsertionPointToEnd(
+          &builder
+               .create<moore::ProcedureOp>(
+                   loc, static_cast<moore::Procedure>(procAst->procedureKind))
+               .getBodyBlock());
+      convertStatement(&procAst->getBody());
       continue;
     }
 

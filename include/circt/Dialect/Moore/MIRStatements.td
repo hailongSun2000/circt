@@ -40,45 +40,19 @@ def AssignOp : MIROp<"assign",
   }];
 }
 
-//===----------------------------------------------------------------------===//
-// Conditional Statements
-//===----------------------------------------------------------------------===//
+def BPAssignOp : MIROp<"bpassign",
+    [TypesMatchWith<"src and dest types have to match", "src", "dest",
+     "$_self">]> {
 
-def IfOp : MIROp<"if", [
-  SingleBlock,
-  NoTerminator,
-  NoRegionArguments
-]>{
-  let summary = "if-else statement";
+  let summary = "Blocking procedural assignment";
   let description = [{
-    See SV Spec 12.4
+    A SystemVerilog blocking procedural assignment statement 'x = y;'.
+    These occur in a sequential block.  See SV Spec 10.4.1.
   }];
-
-  let regions = (region SizedRegion<1>:$thenRegion, AnyRegion:$elseRegion);
-  let arguments = (ins UnpackedType:$cond);
+  let arguments = (ins AnyType:$dest, AnyType:$src);
   let results = (outs);
   let assemblyFormat = [{
-   $cond $thenRegion (`else` $elseRegion^)? attr-dict `:` qualified(type($cond))
-  }];
-
-  let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<(ins "Value":$cond,
-                      CArg<"std::function<void()>", "{}">:$thenCtor,
-                      CArg<"std::function<void()>", "{}">:$elseCtor)>
-  ];
-
-  let extraClassDeclaration = [{
-    bool hasElse() { return !getElseRegion().empty(); }
-    
-    Block *getThenBlock() {
-      assert(!getThenRegion().empty() && "'then' region does not exist.");
-      return &getThenRegion().front();
-    }
-
-    Block *getElseBlock() {
-      assert(hasElse() && "'else' region does not exist.");
-      return &getElseRegion().front();
-    }
+    $dest `,` $src  attr-dict `:` qualified(type($src))
   }];
 }
+
