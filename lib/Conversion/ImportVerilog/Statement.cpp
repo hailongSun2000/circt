@@ -22,8 +22,33 @@ using namespace ImportVerilog;
 LogicalResult Context::visitConditionalStmt(
     const slang::ast::ConditionalStatement *conditionalStmt) {
   auto loc = convertLocation(conditionalStmt->sourceRange.start());
+  auto type = conditionalStmt->conditions.begin()->expr->type;
 
-  return mlir::emitError(loc, "unsupported statement: conditional");
+  Value cond;
+  cond = visitExpression(conditionalStmt->conditions.begin()->expr, *type);
+  if (!cond)
+    return failure();
+
+  // The numeric value of the if expression is tested for being zero.
+  // And if (expression) is equivalent to if (expression != 0).
+  // So the following code is for handling `if (expression)`.
+  if (!cond.getType().isa<mlir::IntegerType>()) {
+    auto zeroValue =
+        rootBuilder.create<moore::ConstantOp>(loc, convertType(*type), 0);
+    cond = rootBuilder.create<moore::InEqualityOp>(loc, cond, zeroValue);
+  }
+
+  auto ifOp = rootBuilder.create<moore::IfOp>(
+      loc, cond, [&]() { convertStatement(&conditionalStmt->ifTrue); },
+      [&]() {});
+  if (ifOp.hasElse()) {
+    rootBuilder.setInsertionPointToEnd(ifOp.getElseBlock());
+    if (conditionalStmt->ifFalse)
+      convertStatement(conditionalStmt->ifFalse);
+    else
+      ifOp.getElseBlock()->erase();
+  }
+  return success();
 }
 
 // It can handle the statements like case, conditional(if), for loop, and etc.

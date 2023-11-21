@@ -61,34 +61,25 @@ void ProcedureOp::build(OpBuilder &builder, OperationState &result,
 }
 
 //===----------------------------------------------------------------------===//
-// EventControlOp
+// IfOp
 //===----------------------------------------------------------------------===//
-// static ParseResult parseEventList(OpAsmParser &p, Attribute &edgesAttr,
-//                                   Attribute &nameAttr) {
+void IfOp::build(OpBuilder &builder, OperationState &result, Value cond,
+                 std::function<void()> thenCtor,
+                 std::function<void()> elseCtor) {
+  OpBuilder::InsertionGuard guard(builder);
 
-//   SmallVector<Attribute> edges;
-//   StringRef keyword;
-//   if (!p.parseOptionalKeyword(&keyword)) {
-//     while (1) {
-//       auto kind = moore::symbolizeEdge(keyword);
-//       if (!kind.has_value())
-//         return p.emitError(
-//             p.getCurrentLocation(),
-//             "expected 'none', 'posedge', 'negedge', or 'bothedges'");
-//       auto edgeEnum = static_cast<uint32_t>(*kind);
-//       edges.push_back(p.getBuilder().getUI32IntegerAttr(edgeEnum));
-//       if (failed(p.parseOptionalComma()))
-//         break;
-//       if (p.parseKeyword(&keyword))
-//         return failure();
-//     }
-//   }
-//   edgesAttr = p.getBuilder().getArrayAttr(edges);
-//   return success();
-// }
+  result.addOperands(cond);
+  builder.createBlock(result.addRegion());
 
-// static void printEventList(OpAsmPrinter &p, EventControlOp op,
-//                            EdgeAttr edgeAttr, StringAttr nameAttr) {}
+  if (thenCtor)
+    thenCtor();
+
+  Region *elseRegion = result.addRegion();
+  if (elseCtor) {
+    builder.createBlock(elseRegion);
+    elseCtor();
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // Type Inference

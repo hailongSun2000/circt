@@ -129,8 +129,6 @@ def EdgeAtrr: I32EnumAttr<"Edge", "Edge kind",
 }
 
 def EventControlOp : MooreOp<"event", [
-  SingleBlock,
-  NoTerminator,
   HasParent<"ProcedureOp">
 ]>{
   let summary = "Detecting posedge and negedge";

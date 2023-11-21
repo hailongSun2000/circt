@@ -100,14 +100,12 @@ def ShrOp : ShiftOp<"shr"> {
 
 class EqualOp<string name> : MIROp<name, [
   Pure,
-  Commutative,
-  TypesMatchWith<"lhs and result types must match",
-                   "lhs", "result", "$_self">
+  Commutative
 ]>{
   let arguments = (ins SimpleBitVectorType:$lhs, 
                        SimpleBitVectorType:$rhs, 
                        UnitAttr:$mode);
-  let results = (outs SimpleBitVectorType:$result);
+  let results = (outs I1:$result);
   let assemblyFormat = [{
     ( `case` $mode^ )? $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];

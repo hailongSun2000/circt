@@ -167,7 +167,7 @@ Value Context::visitAssignmentExpr(
   //       slang::syntax::SyntaxKind::ContinuousAssign)
   //     rootBuilder.create<moore::AssignOp>(loc, lhs, rhs);
   //   else
-  rootBuilder.create<moore::BPAssignOp>(loc, lhs, rhs);
+  rootBuilder.create<moore::AssignOp>(loc, lhs, rhs);
   // }
   return lhs;
 }
