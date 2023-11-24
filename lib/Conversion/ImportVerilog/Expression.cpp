@@ -92,17 +92,20 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
     return rootBuilder.create<moore::InEqualityOp>(loc, lhs, rhs,
                                                    rootBuilder.getUnitAttr());
   case slang::ast::BinaryOperator::GreaterThanEqual:
-    mlir::emitError(loc, "unsupported binary operator : greater than equal");
-    return nullptr;
+    // TODO: I think should integrate these four relation operators into one
+    // rootBuilder.create. But I failed, the error is `resultNumber <
+    // getNumResults() && ... ` from Operation.h:983.
+    return rootBuilder.create<moore::RelationalOp>(
+        loc, moore::Relation::GreaterThanEqual, lhs, rhs);
   case slang::ast::BinaryOperator::GreaterThan:
-    mlir::emitError(loc, "unsupported binary operator : greater than");
-    return nullptr;
+    return rootBuilder.create<moore::RelationalOp>(
+        loc, moore::Relation::GreaterThan, lhs, rhs);
   case slang::ast::BinaryOperator::LessThanEqual:
-    mlir::emitError(loc, "unsupported binary operator : less than equal");
-    return nullptr;
+    return rootBuilder.create<moore::RelationalOp>(
+        loc, moore::Relation::LessThanEqual, lhs, rhs);
   case slang::ast::BinaryOperator::LessThan:
-    mlir::emitError(loc, "unsupported binary operator : less than");
-    return nullptr;
+    return rootBuilder.create<moore::RelationalOp>(
+        loc, moore::Relation::LessThan, lhs, rhs);
   case slang::ast::BinaryOperator::WildcardEquality:
     mlir::emitError(loc, "unsupported binary operator : wildcard equality");
     return nullptr;
@@ -122,18 +125,15 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
     mlir::emitError(loc, "unsupported binary operator : logical equivalence");
     return nullptr;
   case slang::ast::BinaryOperator::LogicalShiftLeft:
-    mlir::emitError(loc, "unsupported binary operator : logical shift left");
-    return nullptr;
+    return rootBuilder.create<moore::ShlOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::LogicalShiftRight:
-    mlir::emitError(loc, "unsupported binary operator : logical shift right");
-    return nullptr;
+    return rootBuilder.create<moore::ShrOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::ArithmeticShiftLeft:
-    mlir::emitError(loc, "unsupported binary operator : arithmetic shift left");
-    return nullptr;
+    return rootBuilder.create<moore::ShlOp>(loc, lhs, rhs,
+                                            rootBuilder.getUnitAttr());
   case slang::ast::BinaryOperator::ArithmeticShiftRight:
-    mlir::emitError(loc,
-                    "unsupported binary operator : arithmetic shift right");
-    return nullptr;
+    return rootBuilder.create<moore::ShrOp>(loc, lhs, rhs,
+                                            rootBuilder.getUnitAttr());
   case slang::ast::BinaryOperator::Power:
     mlir::emitError(loc, "unsupported binary operator : power");
     return nullptr;
@@ -167,7 +167,7 @@ Value Context::visitAssignmentExpr(
   //       slang::syntax::SyntaxKind::ContinuousAssign)
   //     rootBuilder.create<moore::AssignOp>(loc, lhs, rhs);
   //   else
-  rootBuilder.create<moore::AssignOp>(loc, lhs, rhs);
+  rootBuilder.create<moore::BPAssignOp>(loc, lhs, rhs);
   // }
   return lhs;
 }

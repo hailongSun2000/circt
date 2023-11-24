@@ -126,7 +126,7 @@ def EqualityOp : EqualOp<"eq">{
   }];
 }
 
-def InEqualityOp : EqualOp<"ie">{
+def InEqualityOp : EqualOp<"ne">{
   let summary = "A logical or case inequality expression";
   let description = [{
     This operation represents the SystemVerilog logical and case
@@ -135,5 +135,39 @@ def InEqualityOp : EqualOp<"ie">{
 
     a != ba not equal to b, result can be unknown.
     a !== ba not equal to b, including x and z.
+  }];
+}
+
+//===---------------------------------------------------------------------===//
+// relational operations
+//===---------------------------------------------------------------------===//
+
+def GreaterThanEqual : I32EnumAttrCase<"GreaterThanEqual", 0, "gte">;
+def GreaterThan : I32EnumAttrCase<"GreaterThan", 1, "gt">;
+def LessThanEqual : I32EnumAttrCase<"LessThanEqual", 2, "lte">;
+def LessThan : I32EnumAttrCase<"LessThan", 3, "lt">;
+
+def RelationalAttr : I32EnumAttr<"Relation", "relational predicate", 
+            [GreaterThanEqual, GreaterThan, LessThanEqual, LessThan]>{
+    let cppNamespace = "circt::moore";
+}
+
+def RelationalOp : MIROp<"cmp", [
+  Pure
+]>{
+  let summary = "Definitions of relational operators";
+  let description = [{
+    The result shall be the scalar value 0 if the specified relation is false
+    or the value 1 if it is true. A 1-bit unknown value (x) will be yield 
+    if the `x` or `z` occur in operand.
+    See IEEE Std 1800-2017 11.4.4.
+  }];
+  let arguments = (ins RelationalAttr:$relation,
+                       SimpleBitVectorType:$lhs, 
+                       SimpleBitVectorType:$rhs);
+  let results = (outs I1:$result);
+  
+  let assemblyFormat = [{
+    $relation $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
 }
