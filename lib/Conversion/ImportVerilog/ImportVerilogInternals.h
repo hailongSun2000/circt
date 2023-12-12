@@ -20,6 +20,7 @@
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxVisitor.h"
 #include "slang/text/SourceManager.h"
+#include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/Support/Debug.h"
 #include <queue>
 
@@ -55,27 +56,27 @@ struct Context {
   Operation *convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
 
+  // Convert a slang statement into an MLIR statement.
   LogicalResult convertStatement(const slang::ast::Statement *statement);
 
   LogicalResult
   visitConditionalStmt(const slang::ast::ConditionalStatement *conditionalStmt);
 
-  Value visitExpression(const slang::ast::Expression *expression,
-                        const slang::ast::Type &type);
+  // Convert a slang expression into an MLIR expression.
+  Value visitExpression(const slang::ast::Expression *expression);
 
   Value
-  visitIntegerLiteral(const slang::ast::IntegerLiteral *integerLiteralExpr,
-                      const slang::ast::Type &type);
-  Value visitNamedValue(const slang::ast::NamedValueExpression *namedValueExpr,
-                        const slang::ast::Type &type);
-  Value visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr,
-                      const slang::ast::Type &type);
+  visitIntegerLiteral(const slang::ast::IntegerLiteral *integerLiteralExpr);
+  Value visitNamedValue(const slang::ast::NamedValueExpression *namedValueExpr);
+  Value visitUnaryOp(const slang::ast::UnaryExpression *unaryExpr);
+  Value visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr);
   Value
-  visitAssignmentExpr(const slang::ast::AssignmentExpression *assignmentExpr,
-                      const slang::ast::Type &type);
-  Value visitConversion(const slang::ast::ConversionExpression *conversionExpr,
-                        const slang::ast::Type &type);
+  visitAssignmentExpr(const slang::ast::AssignmentExpression *assignmentExpr);
+  Value
+  visitConcatenation(const slang::ast::ConcatenationExpression *concatExpr);
+  Value visitConversion(const slang::ast::ConversionExpression *conversionExpr);
 
+  // Convert a slang timing control into an MLIR timing control.
   LogicalResult
   visitTimingControl(const slang::ast::TimingControl *timingControl);
 
@@ -102,11 +103,10 @@ struct Context {
   SymbolTable symbolTable;
 
   /// A symbol table of declared or defined variables. Like logic a = 1;
-  /// In varSymbolTable, the form is (a,(a,1)). Although there are two `a`
-  /// in symbol table, the first type of a is StringRef,
-  /// or the second is Value created by the moore::VariableDeclOp.
-  /// If it's logic a; The form will be (a,(a,NULL)).
-  DenseMap<StringRef, std::pair<Value, Value>> varSymbolTable;
+  /// In varSymbolTable, the form is (a,a). Although there are two `a`
+  /// in the symbol table, the first type of a is StringRef,
+  /// and the second is Value created by the moore::VariableOp.
+  llvm::ScopedHashTable<StringRef, mlir::Value> varSymbolTable;
 
   /// How we have lowered modules to MLIR.
   DenseMap<const slang::ast::InstanceBodySymbol *, Operation *> moduleOps;

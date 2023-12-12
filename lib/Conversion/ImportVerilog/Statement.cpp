@@ -24,8 +24,7 @@ LogicalResult Context::visitConditionalStmt(
   auto loc = convertLocation(conditionalStmt->sourceRange.start());
   auto type = conditionalStmt->conditions.begin()->expr->type;
 
-  Value cond;
-  cond = visitExpression(conditionalStmt->conditions.begin()->expr, *type);
+  Value cond = visitExpression(conditionalStmt->conditions.begin()->expr);
   if (!cond)
     return failure();
 
@@ -69,9 +68,7 @@ Context::convertStatement(const slang::ast::Statement *statement) {
     convertStatement(&statement->as<slang::ast::BlockStatement>().body);
     break;
   case slang::ast::StatementKind::ExpressionStatement:
-    visitExpression(
-        &statement->as<slang::ast::ExpressionStatement>().expr,
-        *statement->as<slang::ast::ExpressionStatement>().expr.type);
+    visitExpression(&statement->as<slang::ast::ExpressionStatement>().expr);
     break;
   case slang::ast::StatementKind::VariableDeclaration:
     return mlir::emitError(loc, "unsupported statement: variable declaration");
@@ -101,7 +98,6 @@ Context::convertStatement(const slang::ast::Statement *statement) {
     visitTimingControl(&statement->as<slang::ast::TimedStatement>().timing);
     convertStatement(&statement->as<slang::ast::TimedStatement>().stmt);
     break;
-    return mlir::emitError(loc, "unsupported statement: timed");
   case slang::ast::StatementKind::ImmediateAssertion:
     return mlir::emitError(loc, "unsupported statement: immediate assertion");
   case slang::ast::StatementKind::ConcurrentAssertion:
@@ -118,9 +114,7 @@ Context::convertStatement(const slang::ast::Statement *statement) {
     return mlir::emitError(loc, "unsupported statement: event trigger");
   case slang::ast::StatementKind::ProceduralAssign:
     visitExpression(
-        &statement->as<slang::ast::ProceduralAssignStatement>().assignment,
-        *statement->as<slang::ast::ProceduralAssignStatement>()
-             .assignment.type);
+        &statement->as<slang::ast::ProceduralAssignStatement>().assignment);
     break;
     // return mlir::emitError(loc, "unsupported statement: procedural assign");
   case slang::ast::StatementKind::ProceduralDeassign:

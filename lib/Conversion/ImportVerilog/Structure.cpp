@@ -106,6 +106,8 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
   auto builder =
       OpBuilder::atBlockEnd(&cast<moore::SVModuleOp>(moduleOp).getBodyBlock());
 
+  llvm::ScopedHashTableScope<StringRef, Value> scope(varSymbolTable);
+
   for (auto &member : module->members()) {
     LLVM_DEBUG(llvm::dbgs()
                << "- Handling " << slang::ast::toString(member.kind) << "\n");
@@ -137,9 +139,18 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loweredType = convertType(*varAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      builder.create<moore::VariableOp>(convertLocation(varAst->location),
-                                        loweredType,
-                                        builder.getStringAttr(varAst->name));
+      rootBuilder.setInsertionPointToEnd(builder.getInsertionBlock());
+      Value varOp = rootBuilder.create<moore::VariableOp>(
+          convertLocation(varAst->location), loweredType,
+          builder.getStringAttr(varAst->name));
+      if (varAst->getInitializer()) {
+        Value value = visitExpression(varAst->getInitializer());
+        if (value.getType() != loweredType)
+          value =
+              rootBuilder.create<moore::ConversionOp>(loc, loweredType, value);
+        rootBuilder.create<moore::BPAssignOp>(loc, varOp, value);
+      }
+      varSymbolTable.insert(varAst->name, varOp);
       continue;
     }
 
@@ -148,9 +159,19 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
       auto loweredType = convertType(*netAst->getDeclaredType());
       if (!loweredType)
         return failure();
-      builder.create<moore::VariableOp>(convertLocation(netAst->location),
-                                        loweredType,
-                                        builder.getStringAttr(netAst->name));
+      rootBuilder.setInsertionPointToEnd(builder.getInsertionBlock());
+      Value netOp = rootBuilder.create<moore::NetOp>(
+          convertLocation(netAst->location), loweredType,
+          builder.getStringAttr(netAst->name),
+          builder.getStringAttr(netAst->netType.name));
+      if (netAst->getInitializer()) {
+        Value value = visitExpression(netAst->getInitializer());
+        if (value.getType() != loweredType)
+          value =
+              rootBuilder.create<moore::ConversionOp>(loc, loweredType, value);
+        rootBuilder.create<moore::CAssignOp>(loc, netOp, value);
+      }
+      varSymbolTable.insert(netAst->name, netOp);
       continue;
     }
 
@@ -170,8 +191,7 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     if (auto *assignAst = member.as_if<slang::ast::ContinuousAssignSymbol>()) {
       rootBuilder.setInsertionPointToEnd(builder.getBlock());
       visitAssignmentExpr(
-          &assignAst->getAssignment().as<slang::ast::AssignmentExpression>(),
-          *assignAst->getAssignment().type);
+          &assignAst->getAssignment().as<slang::ast::AssignmentExpression>());
       continue;
     }
 

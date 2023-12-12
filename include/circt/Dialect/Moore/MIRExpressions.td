@@ -45,6 +45,74 @@ def ConcatOp : MIROp<"concat", [
 }
 
 //===----------------------------------------------------------------------===//
+// Unary operations
+//===----------------------------------------------------------------------===//
+
+def Plus : I32EnumAttrCase<"Plus", 0, "plus">;
+def Minus : I32EnumAttrCase<"Minus", 1, "minus">;
+def LogicalNot : I32EnumAttrCase<"LogicalNot", 2, "not">;
+
+def UnaryAttr : I32EnumAttr<"Unary", "Three common unary operators",
+                            [Plus, Minus, LogicalNot]>{
+  let cppNamespace = "circt::moore";
+}
+
+def UnaryOp : MIROp<"unary",[
+  Pure,
+  TypesMatchWith<"value and result types must match",
+                   "value", "result", "$_self">
+]> {
+  let summary = "Definitions of the unary operations";
+  let description = [{
+    See IEEE Std 1800-2017 11.4.2 and 11.4.7.
+  }];
+
+  let arguments = (ins UnaryAttr:$unary,
+                       SimpleBitVectorType:$value);
+  let results = (outs SimpleBitVectorType:$result);
+  let assemblyFormat = [{
+    $unary $value attr-dict `:` type($value)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Reduction operations
+//===----------------------------------------------------------------------===//
+
+def BitwiseNot : I32EnumAttrCase<"BitwiseNot", 0, "not">;
+def BitwiseAnd : I32EnumAttrCase<"BitwiseAnd", 1, "and">;
+def BitwiseOr : I32EnumAttrCase<"BitwiseOr", 2, "or">;
+def BitwiseXor : I32EnumAttrCase<"BitwiseXor", 3, "xor">;
+def BitwiseNand : I32EnumAttrCase<"BitwiseNand", 4, "nand">;
+def BitwiseNor : I32EnumAttrCase<"BitwiseNor", 5, "nor">;
+def BitwiseXnor : I32EnumAttrCase<"BitwiseXnor", 6, "xnor">;
+
+
+def ReductionAttr : I32EnumAttr<"Reduction", "Reduction predicate",
+                      [BitwiseNot, BitwiseAnd, BitwiseOr, BitwiseXor,
+                       BitwiseNand, BitwiseNor, BitwiseXnor]>{
+  let cppNamespace = "circt::moore";
+}
+
+def ReductionOp : MIROp<"reduction",[
+  Pure,
+  TypesMatchWith<"value and result types must match",
+                   "value", "result", "$_self">
+]> {
+  let summary = "Definitions of the reduction operations";
+  let description = [{
+    See IEEE Std 1800-2017 11.4.9.
+  }];
+
+  let arguments = (ins ReductionAttr:$reduction,
+                       SimpleBitVectorType:$value);
+  let results = (outs SimpleBitVectorType:$result);
+  let assemblyFormat = [{
+    $reduction $value attr-dict `:` type($value)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Shift operations
 //===----------------------------------------------------------------------===//
 
@@ -101,7 +169,7 @@ def ShrOp : ShiftOp<"shr"> {
 class EqualOp<string name> : MIROp<name, [
   Pure,
   Commutative
-]>{
+]> {
   let arguments = (ins SimpleBitVectorType:$lhs, 
                        SimpleBitVectorType:$rhs, 
                        UnitAttr:$mode);
@@ -147,14 +215,14 @@ def GreaterThan : I32EnumAttrCase<"GreaterThan", 1, "gt">;
 def LessThanEqual : I32EnumAttrCase<"LessThanEqual", 2, "lte">;
 def LessThan : I32EnumAttrCase<"LessThan", 3, "lt">;
 
-def RelationalAttr : I32EnumAttr<"Relation", "relational predicate", 
+def RelationalAttr : I32EnumAttr<"Relation", "Relational predicate", 
             [GreaterThanEqual, GreaterThan, LessThanEqual, LessThan]>{
     let cppNamespace = "circt::moore";
 }
 
-def RelationalOp : MIROp<"cmp", [
+def RelationalOp : MIROp<"icmp", [
   Pure
-]>{
+]> {
   let summary = "Definitions of relational operators";
   let description = [{
     The result shall be the scalar value 0 if the specified relation is false
@@ -181,7 +249,7 @@ def LogicalOr : I32EnumAttrCase<"LogicalOr", 1, "or">;
 def LogicalImplication : I32EnumAttrCase<"LogicalImplication", 2, "impl">;
 def LogicalEquivalence : I32EnumAttrCase<"LogicalEquivalence", 3, "equiv">;
 
-def LogicalAttr : I32EnumAttr<"Logic", "logical predicate", 
+def LogicalAttr : I32EnumAttr<"Logic", "Logical predicate", 
        [LogicalAnd, LogicalOr, LogicalImplication, LogicalEquivalence]>{
     let cppNamespace = "circt::moore";
 }
@@ -190,7 +258,7 @@ def LogicalOp : MIROp<"logic", [
   Pure,
   TypesMatchWith<"lhs and result types must match",
                    "lhs", "result", "$_self">
-]>{
+]> {
   let summary = "Definitions of logical operators";
   let description = [{
     The result of the evaluation of a logical operation shall be `1`, `0`, 
@@ -204,5 +272,51 @@ def LogicalOp : MIROp<"logic", [
 
   let assemblyFormat = [{
     $logic $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+  }];
+}
+
+//===---------------------------------------------------------------------===//
+// Bitwise operations
+//===---------------------------------------------------------------------===//
+
+def BinaryAnd : I32EnumAttrCase<"BinaryAnd", 0, "and">;
+def BinaryOr : I32EnumAttrCase<"BinaryOr", 1, "or">;
+def BinaryXor : I32EnumAttrCase<"BinaryXor", 2, "xor">;
+def BinaryXnor : I32EnumAttrCase<"BinaryXnor", 3, "xnor">;
+
+def BitwiseAttr : I32EnumAttr<"Bitwise", "Binary bitwise predicate",
+                       [BinaryAnd, BinaryOr, BinaryXor, BinaryXnor]>{
+  let cppNamespace = "circt::moore";
+}
+
+def BitwiseOp : MIROp<"binBitwise", [
+  Pure,
+  TypesMatchWith<"lhs and result types must match",
+                   "lhs", "result", "$_self">
+]> {
+  let summary = "Definitions of the binary bitwise operators";
+  let description = [{
+    This operator shall combine a bit in one operand with its corresponding
+    bit in the other operand to calculate 1 bit for the result.
+    See IEEE Std 1800-2017 11.4.8.
+  }];
+  let arguments = (ins BitwiseAttr:$bitwise,
+                       SimpleBitVectorType:$lhs,
+                       SimpleBitVectorType:$rhs);
+  let results = (outs SimpleBitVectorType:$result);
+
+  // let skipDefaultBuilders = 1;
+  // let builders = [
+  //   OpBuilder<(ins "Bitwise":$bitwise, "Value":$lhs, "Value":$rhs),
+  //   [{
+  //     $_state.addOperands({lhs,rhs});
+  //     $_state.addAttribute("bitwise", 
+  //       $_builder.getI32IntegerAttr(static_cast<int32_t>(bitwise)));
+  //     $_state.addTypes(lhs.getType());
+  //   }]>
+  // ];
+
+  let assemblyFormat = [{
+    $bitwise $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
 }

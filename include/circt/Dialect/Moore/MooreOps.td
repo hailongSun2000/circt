@@ -55,6 +55,17 @@ def VariableOp : MooreOp<"variable", [
   }];
 }
 
+def NetOp : MooreOp<"net", [
+  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+]> {
+  let summary = "Declare a net";
+  let arguments = (ins StrAttr:$name, StrAttr:$sym_name);
+  let results = (outs UnpackedType:$result);
+  let assemblyFormat = [{
+    custom<ImplicitSSAName>($name) $sym_name attr-dict `:` type($result)
+  }];
+}
+
 def Initial: I32EnumAttrCase<"Initial", 0, "initial">;
 def Final: I32EnumAttrCase<"Final", 1, "final">;
 def Always: I32EnumAttrCase<"Always", 2, "always">;
@@ -130,12 +141,27 @@ def EdgeAtrr: I32EnumAttr<"Edge", "Edge kind",
 
 def EventControlOp : MooreOp<"event", [
   HasParent<"ProcedureOp">
-]>{
+]> {
   let summary = "Detecting posedge and negedge";
   let description = "See SV Spec 9.4.2.";
   let arguments = (ins EdgeAtrr:$edge, StrAttr:$name);
   let results = (outs);
   let assemblyFormat = [{
     $edge $name attr-dict
+  }];
+}
+
+def ConversionOp : MooreOp<"conversion", [
+  Pure
+]> {
+  let description = [{
+    Like logic[31:0] a; int b; assign a = b;
+    The type of b is converted from int to logic[31:0].
+  }];
+  let arguments = (ins AnyType:$src);
+  let results = (outs SimpleBitVectorType:$result);
+  
+  let assemblyFormat = [{
+    $src attr-dict `:` functional-type($src, $result)
   }];
 }
