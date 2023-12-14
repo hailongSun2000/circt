@@ -4,13 +4,11 @@
 module BinaryOp();
 // CHECK-NEXT: %a = moore.variable : !moore.int
 // CHECK-NEXT: %0 = moore.mir.constant 12 : !moore.int
-// CHECK-NEXT: %1 = moore.conversion %0 : (!moore.int) -> !moore.int
-// CHECK-NEXT: moore.mir.bpassign %a, %1 : !moore.int
+// CHECK-NEXT: moore.mir.bpassign %a, %0 : !moore.int
   int a = 12;
 // CHECK-NEXT: %b = moore.variable : !moore.int
-// CHECK-NEXT: %2 = moore.mir.constant 5 : !moore.int
-// CHECK-NEXT: %3 = moore.conversion %2 : (!moore.int) -> !moore.int
-// CHECK-NEXT: moore.mir.bpassign %b, %3 : !moore.int
+// CHECK-NEXT: %1 = moore.mir.constant 5 : !moore.int
+// CHECK-NEXT: moore.mir.bpassign %b, %1 : !moore.int
   int b = 5;
 // CHECK-NEXT: %log_and = moore.variable : !moore.int
 // CHECK-NEXT: %log_equiv = moore.variable : !moore.int
@@ -39,73 +37,73 @@ module BinaryOp();
   int arith_shl, arith_shr, log_shl, log_shr;
 // CHECK-NEXT: moore.procedure(initial) 
   initial begin
-// CHECK-NEXT:   %4 = moore.mir.logic and %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %log_and, %4 : !moore.int
+// CHECK-NEXT:   %2 = moore.mir.logic and %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %log_and, %2 : !moore.int
     log_and = a && b;
-// CHECK-NEXT:   %5 = moore.mir.logic equiv %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %log_equiv, %5 : !moore.int
+// CHECK-NEXT:   %3 = moore.mir.logic equiv %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %log_equiv, %3 : !moore.int
     log_equiv = a <-> b;
-// CHECK-NEXT:   %6 = moore.mir.logic impl %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %log_impl, %6 : !moore.int
+// CHECK-NEXT:   %4 = moore.mir.logic impl %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %log_impl, %4 : !moore.int
     log_impl = a ->b;
-// CHECK-NEXT:   %7 = moore.mir.logic or %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %log_or, %7 : !moore.int
+// CHECK-NEXT:   %5 = moore.mir.logic or %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %log_or, %5 : !moore.int
     log_or = a || b;
-// CHECK-NEXT:   %8 = moore.mir.binBitwise and %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %bin_bit_and, %8 : !moore.int
+// CHECK-NEXT:   %6 = moore.mir.binBitwise and %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %bin_bit_and, %6 : !moore.int
     bin_bit_and = a & b;
-// CHECK-NEXT:   %9 = moore.mir.binBitwise or %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %bin_bit_or, %9 : !moore.int
+// CHECK-NEXT:   %7 = moore.mir.binBitwise or %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %bin_bit_or, %7 : !moore.int
     bin_bit_or = a | b;
-// CHECK-NEXT:   %10 = moore.mir.binBitwise xor %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %bin_bit_xor, %10 : !moore.int
+// CHECK-NEXT:   %8 = moore.mir.binBitwise xor %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %bin_bit_xor, %8 : !moore.int
     bin_bit_xor = a ^ b;
-// CHECK-NEXT:   %11 = moore.mir.binBitwise xnor %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %bin_bit_xnor, %11 : !moore.int
+// CHECK-NEXT:   %9 = moore.mir.binBitwise xnor %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %bin_bit_xnor, %9 : !moore.int
     bin_bit_xnor = a ~^ b;
-// CHECK-NEXT:   %12 = moore.mir.eq case %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   %13 = moore.conversion %12 : (i1) -> !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %case_eq, %13 : !moore.int
+// CHECK-NEXT:   %10 = moore.mir.eq case %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   %11 = moore.conversion %10 : (i1) -> !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %case_eq, %11 : !moore.int
     case_eq = a === b;
-// CHECK-NEXT:   %14 = moore.mir.ne case %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   %15 = moore.conversion %14 : (i1) -> !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %case_neq, %15 : !moore.int
+// CHECK-NEXT:   %12 = moore.mir.ne case %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   %13 = moore.conversion %12 : (i1) -> !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %case_neq, %13 : !moore.int
     case_neq = a !== b;
-// CHECK-NEXT:   %16 = moore.mir.eq %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   %17 = moore.conversion %16 : (i1) -> !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %log_eq, %17 : !moore.int
+// CHECK-NEXT:   %14 = moore.mir.eq %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   %15 = moore.conversion %14 : (i1) -> !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %log_eq, %15 : !moore.int
     log_eq = a == b;
-// CHECK-NEXT:   %18 = moore.mir.ne %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   %19 = moore.conversion %18 : (i1) -> !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %log_neq, %19 : !moore.int
+// CHECK-NEXT:   %16 = moore.mir.ne %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   %17 = moore.conversion %16 : (i1) -> !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %log_neq, %17 : !moore.int
     log_neq = a != b ;
-// CHECK-NEXT:   %20 = moore.mir.icmp gte %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   %21 = moore.conversion %20 : (i1) -> !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %gte, %21 : !moore.int
+// CHECK-NEXT:   %18 = moore.mir.icmp gte %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   %19 = moore.conversion %18 : (i1) -> !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %gte, %19 : !moore.int
     gte = a >= b;
-// CHECK-NEXT:   %22 = moore.mir.icmp gt %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   %23 = moore.conversion %22 : (i1) -> !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %gt, %23 : !moore.int
+// CHECK-NEXT:   %20 = moore.mir.icmp gt %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   %21 = moore.conversion %20 : (i1) -> !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %gt, %21 : !moore.int
     gt = a > b;
-// CHECK-NEXT:   %24 = moore.mir.icmp lte %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   %25 = moore.conversion %24 : (i1) -> !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %lte, %25 : !moore.int
+// CHECK-NEXT:   %22 = moore.mir.icmp lte %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   %23 = moore.conversion %22 : (i1) -> !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %lte, %23 : !moore.int
     lte = a <= b;
-// CHECK-NEXT:   %26 = moore.mir.icmp lt %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   %27 = moore.conversion %26 : (i1) -> !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %lt, %27 : !moore.int
+// CHECK-NEXT:   %24 = moore.mir.icmp lt %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   %25 = moore.conversion %24 : (i1) -> !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %lt, %25 : !moore.int
     lt = a < b;
-// CHECK-NEXT:   %28 = moore.mir.shl arithmetic %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %arith_shl, %28 : !moore.int
+// CHECK-NEXT:   %26 = moore.mir.shl arithmetic %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %arith_shl, %26 : !moore.int
     arith_shl = a <<< b;
-// CHECK-NEXT:   %29 = moore.mir.shr arithmetic %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %arith_shr, %29 : !moore.int
+// CHECK-NEXT:   %27 = moore.mir.shr arithmetic %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %arith_shr, %27 : !moore.int
     arith_shr = a >>> b;
-// CHECK-NEXT:   %30 = moore.mir.shl %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %log_shl, %30 : !moore.int
+// CHECK-NEXT:   %28 = moore.mir.shl %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %log_shl, %28 : !moore.int
     log_shl = a << b;
-// CHECK-NEXT:   %31 = moore.mir.shr %a, %b : !moore.int, !moore.int
-// CHECK-NEXT:   moore.mir.bpassign %log_shr, %31 : !moore.int
+// CHECK-NEXT:   %29 = moore.mir.shr %a, %b : !moore.int, !moore.int
+// CHECK-NEXT:   moore.mir.bpassign %log_shr, %29 : !moore.int
     log_shr = a >> b;
   end
 endmodule

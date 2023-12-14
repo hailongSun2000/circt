@@ -74,7 +74,6 @@ struct Context {
   visitAssignmentExpr(const slang::ast::AssignmentExpression *assignmentExpr);
   Value
   visitConcatenation(const slang::ast::ConcatenationExpression *concatExpr);
-  Value visitConversion(const slang::ast::ConversionExpression *conversionExpr);
 
   // Convert a slang timing control into an MLIR timing control.
   LogicalResult
@@ -102,12 +101,13 @@ struct Context {
   /// A symbol table of the MLIR module we are emitting into.
   SymbolTable symbolTable;
 
-  /// A symbol table of declared or defined variables. Like logic a = 1;
-  /// In varSymbolTable, the form is (a,a). Although there are two `a`
-  /// in the symbol table, the first type of a is StringRef,
-  /// and the second is Value created by the moore::VariableOp.
+  /// The symbol table maps a variable name to a value in the current scope,
+  /// which is declared or defined variables.
+  /// Entering a module creates a new scope, and the arguments are
+  /// added to the mapping. When the processing of a module is terminated, the
+  /// scope is destroyed and the mappings created in this scope are dropped.
   llvm::ScopedHashTable<StringRef, mlir::Value> varSymbolTable;
-
+  using SymbolTableScopeT = llvm::ScopedHashTableScope<StringRef, mlir::Value>;
   /// How we have lowered modules to MLIR.
   DenseMap<const slang::ast::InstanceBodySymbol *, Operation *> moduleOps;
   /// A list of modules for which the header has been created, but the body has

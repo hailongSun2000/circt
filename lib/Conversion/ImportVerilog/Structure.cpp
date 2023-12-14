@@ -15,6 +15,7 @@
 #include "slang/ast/types/AllTypes.h"
 #include "slang/ast/types/Type.h"
 #include "slang/syntax/SyntaxVisitor.h"
+#include "llvm/ADT/StringRef.h"
 
 using namespace circt;
 using namespace ImportVerilog;
@@ -106,7 +107,10 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
   auto builder =
       OpBuilder::atBlockEnd(&cast<moore::SVModuleOp>(moduleOp).getBodyBlock());
 
-  llvm::ScopedHashTableScope<StringRef, Value> scope(varSymbolTable);
+  // Create a new scope in a module. When the processing of a module is
+  // terminated, the scope is destroyed and the mappings created in this scope
+  // are dropped.
+  SymbolTableScopeT varScope(varSymbolTable);
 
   for (auto &member : module->members()) {
     LLVM_DEBUG(llvm::dbgs()

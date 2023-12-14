@@ -91,14 +91,12 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr) {
 
   switch (binaryExpr->op) {
   case slang::ast::BinaryOperator::Add:
-    mlir::emitError(loc, "unsupported binary operator : add");
-    return nullptr;
+    return rootBuilder.create<moore::AddOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Subtract:
     mlir::emitError(loc, "unsupported binary operator : subtract");
     return nullptr;
   case slang::ast::BinaryOperator::Multiply:
-    mlir::emitError(loc, "unsupported binary operator : multiply");
-    return nullptr;
+    return rootBuilder.create<moore::MulOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Divide:
     mlir::emitError(loc, "unsupported binary operator : divide");
     return nullptr;
@@ -198,6 +196,9 @@ Value Context::visitAssignmentExpr(
     if (assignmentExpr->syntax->parent->kind ==
         slang::syntax::SyntaxKind::ContinuousAssign)
       rootBuilder.create<moore::CAssignOp>(loc, lhs, rhs);
+    else if (assignmentExpr->syntax->parent->kind ==
+             slang::syntax::SyntaxKind::ProceduralAssignStatement)
+      rootBuilder.create<moore::PCAssignOp>(loc, lhs, rhs);
     else
       rootBuilder.create<moore::BPAssignOp>(loc, lhs, rhs);
   }
