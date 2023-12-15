@@ -12,6 +12,45 @@
 
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
+// Base class for binary operators.
+class BinOp<string mnemonic, list<Trait> traits = []> :
+      MIROp<mnemonic, traits> {
+  let arguments = (ins AnyType:$lhs, AnyType:$rhs, UnitAttr:$twoState);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat =
+    "$lhs `,` $rhs (`bin` $twoState^)? attr-dict `:` functional-type($args, $results)";
+}
+
+// Binary operator with uniform input types.
+class UTBinOp<string mnemonic, list<Trait> traits = []> :
+      BinOp<mnemonic,
+               traits # [SameTypeOperands, SameOperandsAndResultType]> {
+  let assemblyFormat = "(`bin` $twoState^)? $lhs `,` $rhs attr-dict `:` qualified(type($result))";
+}
+
+// Base class for   variadic operators.
+class VariadicOp<string mnemonic, list<Trait> traits = []> :
+      MIROp<mnemonic, traits> {
+  let arguments = (ins Variadic<AnyType>:$inputs, UnitAttr:$twoState);
+  
+  let results = (outs AnyType:$result);
+}
+
+// VariadicOp with uniform input types.
+class UTVariadicOp<string mnemonic, list<Trait> traits = []> :
+      VariadicOp<mnemonic,
+                    traits # [SameTypeOperands, SameOperandsAndResultType]> {
+
+  let assemblyFormat = "(`bin` $twoState^)? $inputs attr-dict `:` qualified(type($result))";
+
+  let builders = [
+    OpBuilder<(ins "Value":$lhs, "Value":$rhs, CArg<"bool", "false">:$twoState), [{
+      return build($_builder, $_state, lhs.getType(),
+                   ValueRange{lhs, rhs}, twoState);
+    }]>
+  ];
+}
 
 def ConstantOp : MIROp<"constant", [Pure]> {
   let summary = "A constant value";
@@ -320,3 +359,12 @@ def BitwiseOp : MIROp<"binBitwise", [
     $bitwise $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
 }
+
+
+//===---------------------------------------------------------------------===//
+// Arithmetic Operations 
+//===---------------------------------------------------------------------===//
+
+// Arithmetic and Logical Operations.
+def AddOp : UTVariadicOp<"add", [Commutative]>;
+def MulOp : UTVariadicOp<"mul", [Commutative]>;

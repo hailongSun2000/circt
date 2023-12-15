@@ -87,3 +87,21 @@ def PAssignOp : MIROp<"passign",
     $dest `,` $src  attr-dict `:` qualified(type($src))
   }];
 }
+
+def PCAssignOp : MIROp<"pcassign",
+    [TypesMatchWith<"src and dest types have to match", "src", "dest",
+     "$_self">]> {
+
+  let summary = "Procedural continuous assignment";
+  let description = [{
+    A SystemVerilog assignment statement 'assign x = y;'.
+    The procedural continuous assignments (using keywords assign and force) are procedural statements
+    that allow expressions to be driven continuously onto variables or nets
+    These occur in procedural scope.  See SV Spec 10.6
+  }];
+  let arguments = (ins AnyType:$dest, AnyType:$src);
+  let results = (outs);
+  let assemblyFormat = [{
+    $dest `,` $src  attr-dict `:` qualified(type($src))
+  }];
+}
