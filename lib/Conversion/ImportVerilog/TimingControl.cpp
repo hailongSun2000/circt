@@ -19,7 +19,7 @@ LogicalResult Context::visitSignalEvent(
     const slang::ast::SignalEventControl *signalEventControl) {
   auto loc = convertLocation(signalEventControl->sourceRange.start());
   auto name = signalEventControl->expr.getSymbolReference()->name;
-  rootBuilder.create<moore::EventControlOp>(
+  builder.create<moore::EventControlOp>(
       loc, static_cast<moore::Edge>(signalEventControl->edge), name);
   return success();
 }

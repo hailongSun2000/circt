@@ -48,24 +48,40 @@ def InstanceOp : MooreOp<"instance", [
 }
 
 def VariableOp : MooreOp<"variable", [
-  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+  OptionalTypesMatchWith<"initial value and variable types match",
+    "result", "initial", "$_self">,
 ]> {
-  let summary = "Declare a variable";
-  let arguments = (ins StrAttr:$name);
+  let summary = "A variable declaration";
+  let description = [{
+    See IEEE 1800-2017 § 6.8 "Variable declarations".
+  }];
+  let arguments = (ins StrAttr:$name, Optional<UnpackedType>:$initial);
   let results = (outs UnpackedType:$result);
   let assemblyFormat = [{
-    `` custom<ImplicitSSAName>($name) attr-dict `:` type($result)
+    `` custom<ImplicitSSAName>($name) ($initial^)? attr-dict
+    `:` type($result)
   }];
 }
 
 def NetOp : MooreOp<"net", [
-  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+  OptionalTypesMatchWith<"assigned value and variable types match",
+    "result", "assignment", "$_self">,
 ]> {
-  let summary = "Declare a net";
-  let arguments = (ins StrAttr:$name, StrAttr:$sym_name);
+  let summary = "A net declaration";
+  let description = [{
+    See IEEE 1800-2017 § 6.7 "Net declarations".
+  }];
+  let arguments = (ins
+    StrAttr:$name,
+    StrAttr:$kind,
+    Optional<UnpackedType>:$assignment
+  );
   let results = (outs UnpackedType:$result);
   let assemblyFormat = [{
-    custom<ImplicitSSAName>($name) $sym_name attr-dict `:` type($result)
+    `` custom<ImplicitSSAName>($name) $kind ($assignment^)? attr-dict
+    `:` type($result)
   }];
 }
 
@@ -90,7 +106,7 @@ def ProcedureOp : MooreOp<"procedure", [
 ]> {
   let summary = "A procedure executed at specific simulation steps";
   let description = [{
-    See IEEE 1800-2017 §9.2 "Structured procedures".
+    See IEEE 1800-2017 § 9.2 "Structured procedures".
   }];
 
   let regions = (region SizedRegion<1>:$body);  

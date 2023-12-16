@@ -33,20 +33,20 @@ LogicalResult Context::visitConditionalStmt(
   // So the following code is for handling `if (expression)`.
   if (!cond.getType().isa<mlir::IntegerType>()) {
     auto zeroValue =
-        rootBuilder.create<moore::ConstantOp>(loc, convertType(*type), 0);
-    cond = rootBuilder.create<moore::InEqualityOp>(loc, cond, zeroValue);
+        builder.create<moore::ConstantOp>(loc, convertType(*type), 0);
+    cond = builder.create<moore::InEqualityOp>(loc, cond, zeroValue);
   }
 
-  auto ifOp = rootBuilder.create<mlir::scf::IfOp>(
+  auto ifOp = builder.create<mlir::scf::IfOp>(
       loc, cond, conditionalStmt->ifFalse != nullptr);
-  OpBuilder::InsertionGuard guard(rootBuilder);
+  OpBuilder::InsertionGuard guard(builder);
 
-  rootBuilder.setInsertionPoint(ifOp.thenYield());
+  builder.setInsertionPoint(ifOp.thenYield());
   if (failed(convertStatement(&conditionalStmt->ifTrue)))
     return failure();
 
   if (conditionalStmt->ifFalse) {
-    rootBuilder.setInsertionPoint(ifOp.elseYield());
+    builder.setInsertionPoint(ifOp.elseYield());
     if (failed(convertStatement(conditionalStmt->ifFalse)))
       return failure();
   }
