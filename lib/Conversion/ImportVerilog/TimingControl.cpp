@@ -42,10 +42,9 @@ Context::visitTimingControl(const slang::ast::TimingControl *timingControl) {
     return visitSignalEvent(
         &timingControl->as<slang::ast::SignalEventControl>());
   case slang::ast::TimingControlKind::EventList:
-    for (auto *event :
-         timingControl->as<slang::ast::EventListControl>().events) {
-      visitTimingControl(event);
-    }
+    for (auto *event : timingControl->as<slang::ast::EventListControl>().events)
+      if (failed(visitTimingControl(event)))
+        return failure();
     break;
   case slang::ast::TimingControlKind::ImplicitEvent:
     return visitImplicitEvent(

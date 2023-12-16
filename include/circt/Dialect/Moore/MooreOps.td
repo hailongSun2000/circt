@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef CIRCT_DIALECT_MOORE_MOOREOPS
+#define CIRCT_DIALECT_MOORE_MOOREOPS
+
 include "mlir/IR/RegionKindInterface.td"
 include "circt/Dialect/Moore/MooreTypes.td"
 
@@ -164,3 +167,5 @@ def ConversionOp : MooreOp<"conversion", [
     $src attr-dict `:` functional-type($src, $result)
   }];
 }
+
+#endif // CIRCT_DIALECT_MOORE_MOOREOPS
