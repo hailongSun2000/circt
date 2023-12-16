@@ -69,11 +69,11 @@ def NetOp : MooreOp<"net", [
 def Initial: I32EnumAttrCase<"Initial", 0, "initial">;
 def Final: I32EnumAttrCase<"Final", 1, "final">;
 def Always: I32EnumAttrCase<"Always", 2, "always">;
-def AlwaysComb: I32EnumAttrCase<"AlwaysComb", 3, "alwaysComb">;
-def AlwaysLatch: I32EnumAttrCase<"AlwaysLatch", 4, "alwaysLatch">;
-def AlwaysFF: I32EnumAttrCase<"AlwaysFF", 5, "alwaysFF">;
+def AlwaysComb: I32EnumAttrCase<"AlwaysComb", 3, "always_comb">;
+def AlwaysLatch: I32EnumAttrCase<"AlwaysLatch", 4, "always_latch">;
+def AlwaysFF: I32EnumAttrCase<"AlwaysFF", 5, "always_ff">;
 
-def ProcedureAttr: I32EnumAttr<"Procedure", "Procedure kind",
+def ProcedureKindAttr: I32EnumAttr<"ProcedureKind", "Procedure kind",
             [Initial, Final, Always, AlwaysComb, AlwaysLatch, AlwaysFF]>{
   let cppNamespace = "circt::moore";
 }
@@ -85,26 +85,25 @@ def ProcedureOp : MooreOp<"procedure", [
   RecursiveMemoryEffects,
   RecursivelySpeculatable
 ]> {
-  let summary = "'Structured procedures";
-  let description = "See SV Spec 9.2.";
+  let summary = "A procedure executed at specific simulation steps";
+  let description = [{
+    See IEEE 1800-2017 §9.2 "Structured procedures".
+  }];
 
   let regions = (region SizedRegion<1>:$body);  
-  let arguments = (ins ProcedureAttr:$procedure);
+  let arguments = (ins ProcedureKindAttr:$kind);
   let results = (outs);
 
   let assemblyFormat = [{
-    `(`$procedure`)` $body attr-dict
+    $kind attr-dict-with-keyword $body
   }];
 
-  let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<(ins "Procedure":$procedure,
-                   CArg<"std::function<void()>", "{}">:$bodyCtor)>
-  ];
-
   let extraClassDeclaration = [{
-
-    mlir::Block &getBodyBlock() { return getBody().front(); }
+    mlir::Block &getBodyBlock() {
+      if (getBody().empty())
+        getBody().emplaceBlock();
+      return getBody().front();
+    }
   }];
 }
 

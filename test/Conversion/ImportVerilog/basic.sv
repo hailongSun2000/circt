@@ -6,6 +6,9 @@ module Top1;
     // CHECK-NEXT: moore.instance "child2" @Child_0
     Child child1();
     Child child2();
+
+    // Should ignore empty members.
+    ;
 endmodule
 
 // CHECK-LABEL: moore.module @Top2

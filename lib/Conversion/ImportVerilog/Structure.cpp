@@ -20,6 +20,25 @@
 using namespace circt;
 using namespace ImportVerilog;
 
+static moore::ProcedureKind
+convertProcedureKind(slang::ast::ProceduralBlockKind kind) {
+  switch (kind) {
+  case slang::ast::ProceduralBlockKind::Always:
+    return moore::ProcedureKind::Always;
+  case slang::ast::ProceduralBlockKind::AlwaysComb:
+    return moore::ProcedureKind::AlwaysComb;
+  case slang::ast::ProceduralBlockKind::AlwaysLatch:
+    return moore::ProcedureKind::AlwaysLatch;
+  case slang::ast::ProceduralBlockKind::AlwaysFF:
+    return moore::ProcedureKind::AlwaysFF;
+  case slang::ast::ProceduralBlockKind::Initial:
+    return moore::ProcedureKind::Initial;
+  case slang::ast::ProceduralBlockKind::Final:
+    return moore::ProcedureKind::Final;
+  }
+  llvm_unreachable("all procedure kinds handled");
+}
+
 LogicalResult
 Context::convertCompilation(slang::ast::Compilation &compilation) {
   auto &root = compilation.getRoot();
@@ -127,6 +146,10 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
         member.kind == slang::ast::SymbolKind::TransparentMember)
       continue;
 
+    // Skip semicolons.
+    if (member.kind == slang::ast::SymbolKind::EmptyMember)
+      continue;
+
     // Handle instances.
     if (auto *instAst = member.as_if<slang::ast::InstanceSymbol>()) {
       auto *targetModule = convertModuleHeader(&instAst->body);
@@ -202,12 +225,11 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
     // Handle ProceduralBlock.
     if (auto *procAst = member.as_if<slang::ast::ProceduralBlockSymbol>()) {
       auto loc = convertLocation(procAst->location);
-      rootBuilder.setInsertionPointToEnd(
-          &builder
-               .create<moore::ProcedureOp>(
-                   loc, static_cast<moore::Procedure>(procAst->procedureKind))
-               .getBodyBlock());
-      convertStatement(&procAst->getBody());
+      auto procOp = builder.create<moore::ProcedureOp>(
+          loc, convertProcedureKind(procAst->procedureKind));
+      rootBuilder.setInsertionPointToEnd(&procOp.getBodyBlock());
+      if (failed(convertStatement(&procAst->getBody())))
+        return failure();
       continue;
     }
 

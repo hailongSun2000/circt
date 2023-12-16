@@ -53,22 +53,6 @@ void NetOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 }
 
 //===----------------------------------------------------------------------===//
-// ProcedureOp
-//===----------------------------------------------------------------------===//
-
-void ProcedureOp::build(OpBuilder &builder, OperationState &result,
-                        Procedure procedure, std::function<void()> bodyCtor) {
-  OpBuilder::InsertionGuard guard(builder);
-
-  result.addAttribute(
-      "procedure", builder.getI32IntegerAttr(static_cast<int32_t>(procedure)));
-  builder.createBlock(result.addRegion());
-
-  if (bodyCtor)
-    bodyCtor();
-}
-
-//===----------------------------------------------------------------------===//
 // Type Inference
 //===----------------------------------------------------------------------===//
 
