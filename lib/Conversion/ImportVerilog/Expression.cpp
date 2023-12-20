@@ -220,8 +220,39 @@ Value Context::visitRelication(
   auto type = convertType(*replicationExpre->type);
   Value count = visitExpression(&replicationExpre->count());
   Value concat = visitExpression(&replicationExpre->concat());
+  if (!count && !concat)
+    return nullptr;
   return builder.create<moore::ReplicationOp>(loc, type,
                                               ValueRange({count, concat}));
+}
+
+// Detail processing for bit-select.
+Value Context::visitElementSelect(
+    const slang::ast::ElementSelectExpression *elemSelectExpr) {
+  auto loc = convertLocation(elemSelectExpr->sourceRange.start());
+  auto type = convertType(*elemSelectExpr->type);
+  Value value = visitExpression(&elemSelectExpr->value());
+  Value select = visitExpression(&elemSelectExpr->selector());
+  if (!value && !select)
+    return nullptr;
+  return builder.create<moore::BitSelectOp>(loc, type,
+                                            ValueRange({value, select}));
+}
+
+// Detail processing for part-select.
+Value Context::visitRangeSelect(
+    const slang::ast::RangeSelectExpression *rangeSelectExpr) {
+  auto loc = convertLocation(rangeSelectExpr->sourceRange.start());
+  auto type = convertType(*rangeSelectExpr->type);
+  Value value = visitExpression(&rangeSelectExpr->value());
+  Value lhs = visitExpression(&rangeSelectExpr->left());
+  Value rhs = visitExpression(&rangeSelectExpr->right());
+  if (!value && !lhs && !rhs)
+    return nullptr;
+  return builder.create<moore::PartSelectOp>(
+      loc, type,
+      static_cast<moore::RangeSelect>(rangeSelectExpr->getSelectionKind()),
+      ValueRange({value, lhs, rhs}));
 }
 
 // It can handle the expressions like literal, assignment, conversion, and etc,
@@ -243,12 +274,18 @@ Value Context::visitExpression(const slang::ast::Expression *expression) {
   case slang::ast::ExpressionKind::Concatenation:
     return visitConcatenation(
         &expression->as<slang::ast::ConcatenationExpression>());
-  case slang::ast::ExpressionKind::Conversion:
-    return visitExpression(
-        &expression->as<slang::ast::ConversionExpression>().operand());
   case slang::ast::ExpressionKind::Replication:
     return visitRelication(
         &expression->as<slang::ast::ReplicationExpression>());
+  case slang::ast::ExpressionKind::ElementSelect:
+    return visitElementSelect(
+        &expression->as<slang::ast::ElementSelectExpression>());
+  case slang::ast::ExpressionKind::RangeSelect:
+    return visitRangeSelect(
+        &expression->as<slang::ast::RangeSelectExpression>());
+  case slang::ast::ExpressionKind::Conversion:
+    return visitExpression(
+        &expression->as<slang::ast::ConversionExpression>().operand());
   // There is other cases.
   default:
     mlir::emitError(loc, "unsupported expression: ")

@@ -134,7 +134,7 @@ def UnaryOp : MIROp<"unary",[
                        SimpleBitVectorType:$value);
   let results = (outs SimpleBitVectorType:$result);
   let assemblyFormat = [{
-    $unary $value attr-dict `:` type($value)
+    $unary attr-dict-with-keyword $value `:` type($value)
   }];
 }
 
@@ -171,7 +171,7 @@ def ReductionOp : MIROp<"reduction",[
                        SimpleBitVectorType:$value);
   let results = (outs SimpleBitVectorType:$result);
   let assemblyFormat = [{
-    $reduction $value attr-dict `:` type($value)
+    $reduction attr-dict-with-keyword $value `:` type($value)
   }];
 }
 
@@ -299,7 +299,7 @@ def RelationalOp : MIROp<"icmp", [
   let results = (outs I1:$result);
   
   let assemblyFormat = [{
-    $relation $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $relation attr-dict-with-keyword $lhs `,` $rhs `:` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -334,7 +334,7 @@ def LogicalOp : MIROp<"logic", [
   let results = (outs SimpleBitVectorType:$result);
 
   let assemblyFormat = [{
-    $logic $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $logic attr-dict-with-keyword $lhs `,` $rhs `:` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -369,10 +369,56 @@ def BitwiseOp : MIROp<"bin_bitwise", [
   let results = (outs SimpleBitVectorType:$result);
 
   let assemblyFormat = [{
-    $bitwise $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $bitwise attr-dict-with-keyword $lhs `,` $rhs `:` type($lhs) `,` type($rhs)
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// BitSelect
+//===----------------------------------------------------------------------===//
+
+def BitSelectOp : MIROp<"bit_select"> {
+  let description = [{
+    Bit-selects extract a particular bit from a vector, packed array, 
+    packed structure, parameter, or concatenation. If the bit-select 
+    address is invalid (it is out of bounds or has one or more x or z bits), 
+    then the value returned by the reference shall be x for 4-state 
+    and 0 for 2-state values. Like `a[9]`.
+    See IEEE Std 1800-2017 11.5.1 "Vector bit-select and part-select".
+  }];
+  let arguments = (ins Variadic<UnpackedType>:$values);
+  let results = (outs UnpackedType:$result);
+  let assemblyFormat = [{
+    $values attr-dict `:` functional-type($values, $result)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// PartSelect
+//===----------------------------------------------------------------------===//
+
+def Simple : I32EnumAttrCase<"Simple", 0, "simple">;
+def IndexedUp : I32EnumAttrCase<"IndexedUp", 1, "index_up">;
+def IndexedDown : I32EnumAttrCase<"IndexedDown", 2, "index_down">;
+
+def RangeSelectAttr : I32EnumAttr<"RangeSelect", "Range select kind",
+                                  [Simple, IndexedUp, IndexedDown]>{
+  let cppNamespace = "circt::moore";
+}
+
+def PartSelectOp : MIROp<"part_select"> {
+  let description = [{
+    There are two types of part-selects: a non-indexed part-select and an 
+    indexed part-select. Previous is a[11:4], and latter is like a[11+:4]. 
+    See IEEE Std 1800-2017 11.5.1 "Vector bit-select and part-select".
+  }];
+  let arguments = (ins RangeSelectAttr:$kind, 
+                       Variadic<UnpackedType>:$values);
+  let results = (outs UnpackedType:$result);
+  let assemblyFormat = [{
+    $kind attr-dict-with-keyword $values `:` functional-type($values, $result)
+  }];
+}
 
 //===---------------------------------------------------------------------===//
 // Arithmetic Operations 

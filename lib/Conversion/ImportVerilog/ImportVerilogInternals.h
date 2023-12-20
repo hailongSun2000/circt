@@ -77,6 +77,10 @@ struct Context {
   visitConcatenation(const slang::ast::ConcatenationExpression *concatExpr);
   Value
   visitRelication(const slang::ast::ReplicationExpression *replicationExpre);
+  Value
+  visitElementSelect(const slang::ast::ElementSelectExpression *elemSelectExpr);
+  Value
+  visitRangeSelect(const slang::ast::RangeSelectExpression *rangeSelectExpr);
 
   // Convert a slang timing control into an MLIR timing control.
   LogicalResult
