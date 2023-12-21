@@ -370,3 +370,10 @@ def BitwiseOp : MIROp<"binBitwise", [
 // Arithmetic and Logical Operations.
 def AddOp : UTVariadicOp<"add", [Commutative]>;
 def MulOp : UTVariadicOp<"mul", [Commutative]>;
+
+def DivUOp : UTBinOp<"divu">;
+def DivSOp : UTBinOp<"divs">;
+def ModUOp : UTBinOp<"modu">;
+def ModSOp : UTBinOp<"mods">;
+def SubOp  : UTBinOp<"sub">;
+def PowOp  : UTBinOp<"pow">;

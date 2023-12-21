@@ -6,9 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "slang/ast/Expression.h"
 #include "ImportVerilogInternals.h"
+#include "circt/Dialect/Moore/MooreOps.h"
 #include "slang/ast/ASTVisitor.h"
+#include "slang/ast/LValue.h"
+#include "slang/ast/Statements.h"
 #include "slang/ast/Symbol.h"
+#include "slang/ast/expressions/AssignmentExpressions.h"
+#include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
@@ -92,16 +98,19 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr) {
   case slang::ast::BinaryOperator::Add:
     return builder.create<moore::AddOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Subtract:
-    mlir::emitError(loc, "unsupported binary operator : subtract");
-    return nullptr;
+    return builder.create<moore::SubOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Multiply:
     return builder.create<moore::MulOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Divide:
-    mlir::emitError(loc, "unsupported binary operator : divide");
-    return nullptr;
+    if (binaryExpr->type->isSigned())
+      return builder.create<moore::DivSOp>(loc, lhs, rhs);
+    else
+      return builder.create<moore::DivUOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::Mod:
-    mlir::emitError(loc, "unsupported binary operator : mod");
-    return nullptr;
+    if (binaryExpr->type->isSigned())
+      return builder.create<moore::ModSOp>(loc, lhs, rhs);
+    else
+      return builder.create<moore::ModUOp>(loc, lhs, rhs);
   case slang::ast::BinaryOperator::BinaryAnd:
     return builder.create<moore::BitwiseOp>(loc, moore::Bitwise::BinaryAnd, lhs,
                                             rhs);
@@ -166,8 +175,7 @@ Value Context::visitBinaryOp(const slang::ast::BinaryExpression *binaryExpr) {
   case slang::ast::BinaryOperator::ArithmeticShiftRight:
     return builder.create<moore::ShrOp>(loc, lhs, rhs, builder.getUnitAttr());
   case slang::ast::BinaryOperator::Power:
-    mlir::emitError(loc, "unsupported binary operator : power");
-    return nullptr;
+    return builder.create<moore::PowOp>(loc, lhs, rhs);
   default:
     mlir::emitError(loc, "unsupported binary operator");
     return nullptr;

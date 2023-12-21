@@ -31,7 +31,10 @@ module Expressions();
   // CHECK: %a = moore.variable : !moore.int
   // CHECK: %b = moore.variable : !moore.int
   // CHECK: %c = moore.variable : !moore.int
+  // CHECK: %ua = moore.net "wire" : !moore.logic
+  // CHECK: %ub = moore.net "wire" : !moore.logic
   int a, b, c;
+  wire ua,ub;
 
   initial begin
     // CHECK: moore.mir.unary plus %a : !moore.int
@@ -48,6 +51,18 @@ module Expressions();
     c = a + b;
     // CHECK: moore.mir.mul %a, %b : !moore.int
     c = a * b;
+    // CHECK: moore.mir.sub %a, %b : !moore.int
+    c = a - b;
+    // CHECK: moore.mir.pow %a, %b : !moore.int
+    c = a ** b;
+    // CHECK: moore.mir.divs %a, %b : !moore.int
+    c = a / b;
+    // CHECK: moore.mir.mods %a, %b : !moore.int
+    c = a % b;
+    // CHECK: moore.mir.divu %ua, %ub : !moore.logic
+    c = ua / ub;
+    // CHECK: moore.mir.modu %ua, %ub : !moore.logic
+    c = ua % ub;
 
     // CHECK: moore.mir.logic and %a, %b : !moore.int, !moore.int
     c = a && b;
