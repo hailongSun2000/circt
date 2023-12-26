@@ -107,6 +107,30 @@ module Expressions();
     c = a <<< b;
     // CHECK: moore.mir.shr arithmetic %a, %b : !moore.int, !moore.int
     c = a >>> b;
+    // CHECK: moore.mir.add %a, %b : !moore.int
+    a += b;
+    // CHECK: moore.mir.sub %a, %b : !moore.int
+    a -= b;
+    // CHECK: moore.mir.mul %a, %b : !moore.int
+    a *= b;
+    // CHECK: moore.mir.divs %a, %b : !moore.int
+    a /= b;
+    // CHECK: moore.mir.mods %a, %b : !moore.int
+    a %= b;
+    // CHECK: moore.mir.binBitwise and %a, %b : !moore.int, !moore.int
+    a &= b;
+    // CHECK: moore.mir.binBitwise or %a, %b : !moore.int, !moore.int
+    a |= b;
+    // CHECK: moore.mir.binBitwise xor %a, %b : !moore.int, !moore.int
+    a ^= b;
+    // CHECK: moore.mir.shl %a, %b : !moore.int, !moore.int
+    a <<= b;
+    // CHECK: moore.mir.shl arithmetic %a, %b : !moore.int, !moore.int
+    a <<<= b;
+    // CHECK: moore.mir.shr %a, %b : !moore.int, !moore.int
+    a >>= b;
+    // CHECK: moore.mir.shr arithmetic %a, %b : !moore.int, !moore.int
+    a >>>= b;
   end
 endmodule
 

@@ -6,15 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "slang/ast/Expression.h"
 #include "ImportVerilogInternals.h"
-#include "circt/Dialect/Moore/MooreOps.h"
 #include "slang/ast/ASTVisitor.h"
-#include "slang/ast/LValue.h"
-#include "slang/ast/Statements.h"
 #include "slang/ast/Symbol.h"
-#include "slang/ast/expressions/AssignmentExpressions.h"
-#include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
@@ -190,7 +184,9 @@ Value Context::visitAssignmentExpr(
   Value lhs = visitExpression(&assignmentExpr->left());
   if (!lhs)
     return nullptr;
+  pushLValue(&lhs);
   Value rhs = visitExpression(&assignmentExpr->right());
+  popLValue();
   if (!rhs)
     return nullptr;
   if (lhs.getType() != rhs.getType())
@@ -243,6 +239,9 @@ Value Context::visitExpression(const slang::ast::Expression *expression) {
   case slang::ast::ExpressionKind::Conversion:
     return visitExpression(
         &expression->as<slang::ast::ConversionExpression>().operand());
+  case slang::ast::ExpressionKind::LValueReference: {
+    return *getTopLValue();
+  }
   // There is other cases.
   default:
     mlir::emitError(loc, "unsupported expression");
