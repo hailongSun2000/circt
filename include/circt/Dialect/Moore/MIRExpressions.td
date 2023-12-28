@@ -86,6 +86,27 @@ def ConcatOp : MIROp<"concat", [
 }
 
 //===----------------------------------------------------------------------===//
+// Replication operations
+//===----------------------------------------------------------------------===//
+
+def ReplicationOp : MIROp<"replicate", [
+  Pure
+]> {
+  let summary = "A replication of expressions";
+  let description = [{
+    This operation is expressed by a concatenation preceded by a non-negative, 
+    non-x, and non-z constant expression, like `{4{w}}`. There are other 
+    constraints about this Op. 
+    See IEEE 1800-2017 § 11.4.12.1 "Replication operator".
+  }];
+  let arguments = (ins Variadic<SimpleBitVectorType>:$values);
+  let results = (outs SimpleBitVectorType:$result);
+  let assemblyFormat = [{
+    $values attr-dict `:` functional-type($values, $result)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Unary operations
 //===----------------------------------------------------------------------===//
 
@@ -105,14 +126,15 @@ def UnaryOp : MIROp<"unary",[
 ]> {
   let summary = "Definitions of the unary operations";
   let description = [{
-    See IEEE Std 1800-2017 11.4.2 and 11.4.7.
+    See IEEE Std 1800-2017 § 11.4.3 "Arithmetic operators" 
+    and 11.4.7 "Logical operators".
   }];
 
   let arguments = (ins UnaryAttr:$unary,
                        SimpleBitVectorType:$value);
   let results = (outs SimpleBitVectorType:$result);
   let assemblyFormat = [{
-    $unary $value attr-dict `:` type($value)
+    $unary attr-dict-with-keyword $value `:` type($value)
   }];
 }
 
@@ -142,14 +164,14 @@ def ReductionOp : MIROp<"reduction",[
 ]> {
   let summary = "Definitions of the reduction operations";
   let description = [{
-    See IEEE Std 1800-2017 11.4.9.
+    See IEEE 1800-2017 § 11.4.9 "Reduction operators".
   }];
 
   let arguments = (ins ReductionAttr:$reduction,
                        SimpleBitVectorType:$value);
   let results = (outs SimpleBitVectorType:$result);
   let assemblyFormat = [{
-    $reduction $value attr-dict `:` type($value)
+    $reduction attr-dict-with-keyword $value `:` type($value)
   }];
 }
 
@@ -269,7 +291,7 @@ def RelationalOp : MIROp<"icmp", [
     The result shall be the scalar value 0 if the specified relation is false
     or the value 1 if it is true. A 1-bit unknown value (x) will be yield 
     if the `x` or `z` occur in operand.
-    See IEEE Std 1800-2017 11.4.4.
+    See IEEE Std 1800-2017 11.4.4 "Relational operators".
   }];
   let arguments = (ins RelationalAttr:$relation,
                        SimpleBitVectorType:$lhs, 
@@ -277,7 +299,7 @@ def RelationalOp : MIROp<"icmp", [
   let results = (outs I1:$result);
   
   let assemblyFormat = [{
-    $relation $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $relation attr-dict-with-keyword $lhs `,` $rhs `:` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -304,7 +326,7 @@ def LogicalOp : MIROp<"logic", [
   let description = [{
     The result of the evaluation of a logical operation shall be `1`, `0`, 
     or, if the result is ambiguous, the unkonw value `x`.
-    See IEEE Std 1800-2017 11.4.7.
+    See IEEE Std 1800-2017 11.4.7 "Logical Operators".
   }];
   let arguments = (ins LogicalAttr:$logic,
                        SimpleBitVectorType:$lhs,
@@ -312,7 +334,7 @@ def LogicalOp : MIROp<"logic", [
   let results = (outs SimpleBitVectorType:$result);
 
   let assemblyFormat = [{
-    $logic $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $logic attr-dict-with-keyword $lhs `,` $rhs `:` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -330,7 +352,7 @@ def BitwiseAttr : I32EnumAttr<"Bitwise", "Binary bitwise predicate",
   let cppNamespace = "circt::moore";
 }
 
-def BitwiseOp : MIROp<"binBitwise", [
+def BitwiseOp : MIROp<"bin_bitwise", [
   Pure,
   TypesMatchWith<"lhs and result types must match",
                    "lhs", "result", "$_self">
@@ -339,29 +361,64 @@ def BitwiseOp : MIROp<"binBitwise", [
   let description = [{
     This operator shall combine a bit in one operand with its corresponding
     bit in the other operand to calculate 1 bit for the result.
-    See IEEE Std 1800-2017 11.4.8.
+    See IEEE Std 1800-2017 11.4.8 "Bitwise operators".
   }];
   let arguments = (ins BitwiseAttr:$bitwise,
                        SimpleBitVectorType:$lhs,
                        SimpleBitVectorType:$rhs);
   let results = (outs SimpleBitVectorType:$result);
 
-  // let skipDefaultBuilders = 1;
-  // let builders = [
-  //   OpBuilder<(ins "Bitwise":$bitwise, "Value":$lhs, "Value":$rhs),
-  //   [{
-  //     $_state.addOperands({lhs,rhs});
-  //     $_state.addAttribute("bitwise", 
-  //       $_builder.getI32IntegerAttr(static_cast<int32_t>(bitwise)));
-  //     $_state.addTypes(lhs.getType());
-  //   }]>
-  // ];
-
   let assemblyFormat = [{
-    $bitwise $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $bitwise attr-dict-with-keyword $lhs `,` $rhs `:` type($lhs) `,` type($rhs)
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// BitSelect
+//===----------------------------------------------------------------------===//
+
+def BitSelectOp : MIROp<"bit_select"> {
+  let description = [{
+    Bit-selects extract a particular bit from a vector, packed array, 
+    packed structure, parameter, or concatenation. If the bit-select 
+    address is invalid (it is out of bounds or has one or more x or z bits), 
+    then the value returned by the reference shall be x for 4-state 
+    and 0 for 2-state values. Like `a[9]`.
+    See IEEE Std 1800-2017 11.5.1 "Vector bit-select and part-select".
+  }];
+  let arguments = (ins Variadic<UnpackedType>:$values);
+  let results = (outs UnpackedType:$result);
+  let assemblyFormat = [{
+    $values attr-dict `:` functional-type($values, $result)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// PartSelect
+//===----------------------------------------------------------------------===//
+
+def Simple : I32EnumAttrCase<"Simple", 0, "simple">;
+def IndexedUp : I32EnumAttrCase<"IndexedUp", 1, "index_up">;
+def IndexedDown : I32EnumAttrCase<"IndexedDown", 2, "index_down">;
+
+def RangeSelectAttr : I32EnumAttr<"RangeSelect", "Range select kind",
+                                  [Simple, IndexedUp, IndexedDown]>{
+  let cppNamespace = "circt::moore";
+}
+
+def PartSelectOp : MIROp<"part_select"> {
+  let description = [{
+    There are two types of part-selects: a non-indexed part-select and an 
+    indexed part-select. Previous is a[11:4], and latter is like a[11+:4]. 
+    See IEEE Std 1800-2017 11.5.1 "Vector bit-select and part-select".
+  }];
+  let arguments = (ins RangeSelectAttr:$kind, 
+                       Variadic<UnpackedType>:$values);
+  let results = (outs UnpackedType:$result);
+  let assemblyFormat = [{
+    $kind attr-dict-with-keyword $values `:` functional-type($values, $result)
+  }];
+}
 
 //===---------------------------------------------------------------------===//
 // Arithmetic Operations 

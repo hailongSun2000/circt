@@ -73,13 +73,13 @@ module Expressions();
     // CHECK: moore.mir.logic or %a, %b : !moore.int, !moore.int
     c = a || b;
 
-    // CHECK: moore.mir.binBitwise and %a, %b : !moore.int, !moore.int
+    // CHECK: moore.mir.bin_bitwise and %a, %b : !moore.int, !moore.int
     c = a & b;
-    // CHECK: moore.mir.binBitwise or %a, %b : !moore.int, !moore.int
+    // CHECK: moore.mir.bin_bitwise or %a, %b : !moore.int, !moore.int
     c = a | b;
-    // CHECK: moore.mir.binBitwise xor %a, %b : !moore.int, !moore.int
+    // CHECK: moore.mir.bin_bitwise xor %a, %b : !moore.int, !moore.int
     c = a ^ b;
-    // CHECK: moore.mir.binBitwise xnor %a, %b : !moore.int, !moore.int
+    // CHECK: moore.mir.bin_bitwise xnor %a, %b : !moore.int, !moore.int
     c = a ~^ b;
 
     // CHECK: moore.mir.eq case %a, %b : !moore.int, !moore.int
@@ -131,6 +131,8 @@ module Expressions();
     a >>= b;
     // CHECK: moore.mir.shr arithmetic %a, %b : !moore.int, !moore.int
     a >>>= b;
+    // CHECK: moore.mir.concat %a, %b : (!moore.int, !moore.int) -> !moore.packed<range<bit, 63:0>>
+    c = {a,b};
   end
 endmodule
 
@@ -164,5 +166,26 @@ module Statements();
     // CHECK: scf.if [[COND]]
     if (a)
       ;
+  end
+endmodule
+
+// CHECK-LABEL: moore.module @Array {
+module Array();
+  // CHECK: %a = moore.variable : !moore.packed<range<logic, 3:0>>
+  // CHECK: %b = moore.variable : !moore.packed<range<logic, 1:0>>
+  // CHECK: %c = moore.variable : !moore.logic
+  logic [3:0] a;
+  logic [1:0] b;
+  logic c;
+
+  initial begin
+    // CHECK: moore.mir.replicate %0, %1 : (!moore.int, !moore.packed<range<logic, 1:0>>) -> !moore.packed<range<logic, 3:0>>
+    a = {2{b}};
+    // CHECK: moore.mir.part_select simple %a, %3, %4 : (!moore.packed<range<logic, 3:0>>, !moore.int, !moore.int) -> !moore.packed<range<logic, 1:0>>
+    b = a[1:0];
+    // CHECK: moore.mir.part_select index_down %a, %6, %7 : (!moore.packed<range<logic, 3:0>>, !moore.int, !moore.int) -> !moore.packed<range<logic, 3:2>>
+    b = a[3-:2];
+    // CHECK: moore.mir.bit_select %a, %10 : (!moore.packed<range<logic, 3:0>>, !moore.int) -> !moore.logic
+    c = a[1];
   end
 endmodule

@@ -196,7 +196,7 @@ Value Context::visitAssignmentExpr(
   else {
     if (assignmentExpr->syntax->parent->kind ==
         slang::syntax::SyntaxKind::ContinuousAssign)
-      builder.create<moore::CAssignOp>(loc, lhs, rhs);
+      builder.create<moore::AssignOp>(loc, lhs, rhs);
     else if (assignmentExpr->syntax->parent->kind ==
              slang::syntax::SyntaxKind::ProceduralAssignStatement)
       builder.create<moore::PCAssignOp>(loc, lhs, rhs);
@@ -215,6 +215,48 @@ Value Context::visitConcatenation(
     operands.push_back(visitExpression(operand));
   }
   return builder.create<moore::ConcatOp>(loc, operands);
+}
+
+// Detail processing about replication.
+Value Context::visitRelication(
+    const slang::ast::ReplicationExpression *replicationExpre) {
+  auto loc = convertLocation(replicationExpre->sourceRange.start());
+  auto type = convertType(*replicationExpre->type);
+  Value count = visitExpression(&replicationExpre->count());
+  Value concat = visitExpression(&replicationExpre->concat());
+  if (!count && !concat)
+    return nullptr;
+  return builder.create<moore::ReplicationOp>(loc, type,
+                                              ValueRange({count, concat}));
+}
+
+// Detail processing for bit-select.
+Value Context::visitElementSelect(
+    const slang::ast::ElementSelectExpression *elemSelectExpr) {
+  auto loc = convertLocation(elemSelectExpr->sourceRange.start());
+  auto type = convertType(*elemSelectExpr->type);
+  Value value = visitExpression(&elemSelectExpr->value());
+  Value select = visitExpression(&elemSelectExpr->selector());
+  if (!value && !select)
+    return nullptr;
+  return builder.create<moore::BitSelectOp>(loc, type,
+                                            ValueRange({value, select}));
+}
+
+// Detail processing for part-select.
+Value Context::visitRangeSelect(
+    const slang::ast::RangeSelectExpression *rangeSelectExpr) {
+  auto loc = convertLocation(rangeSelectExpr->sourceRange.start());
+  auto type = convertType(*rangeSelectExpr->type);
+  Value value = visitExpression(&rangeSelectExpr->value());
+  Value lhs = visitExpression(&rangeSelectExpr->left());
+  Value rhs = visitExpression(&rangeSelectExpr->right());
+  if (!value && !lhs && !rhs)
+    return nullptr;
+  return builder.create<moore::PartSelectOp>(
+      loc, type,
+      static_cast<moore::RangeSelect>(rangeSelectExpr->getSelectionKind()),
+      ValueRange({value, lhs, rhs}));
 }
 
 // It can handle the expressions like literal, assignment, conversion, and etc,
@@ -236,6 +278,15 @@ Value Context::visitExpression(const slang::ast::Expression *expression) {
   case slang::ast::ExpressionKind::Concatenation:
     return visitConcatenation(
         &expression->as<slang::ast::ConcatenationExpression>());
+  case slang::ast::ExpressionKind::Replication:
+    return visitRelication(
+        &expression->as<slang::ast::ReplicationExpression>());
+  case slang::ast::ExpressionKind::ElementSelect:
+    return visitElementSelect(
+        &expression->as<slang::ast::ElementSelectExpression>());
+  case slang::ast::ExpressionKind::RangeSelect:
+    return visitRangeSelect(
+        &expression->as<slang::ast::RangeSelectExpression>());
   case slang::ast::ExpressionKind::Conversion:
     return visitExpression(
         &expression->as<slang::ast::ConversionExpression>().operand());
@@ -244,7 +295,8 @@ Value Context::visitExpression(const slang::ast::Expression *expression) {
   }
   // There is other cases.
   default:
-    mlir::emitError(loc, "unsupported expression");
+    mlir::emitError(loc, "unsupported expression: ")
+        << slang::ast::toString(expression->kind);
     return nullptr;
   }
 
