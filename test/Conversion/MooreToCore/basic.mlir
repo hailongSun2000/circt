@@ -83,6 +83,50 @@ func.func @Expressions(%arg0: !moore.bit, %arg1: !moore.logic, %arg2: !moore.pac
   // CHECK-NEXT: comb.shrs %arg3, [[V15]] : i5
   moore.ashr %arg3, %arg2 : !moore.packed<range<bit<signed>, 4:0>>, !moore.packed<range<bit, 5:0>>
 
+  
+  // CHECK: comb.add %arg0, %arg0 : i1
+  // CHECK: comb.sub %arg0, %arg0 : i1
+  // CHECK: comb.mul %arg0, %arg0 : i1
+  // CHECK: comb.divu %arg0, %arg0 : i1
+  // CHECK: comb.modu %arg0, %arg0 : i1
+  // CHECK: comb.and %arg0, %arg0 : i1
+  // CHECK: comb.or %arg0, %arg0 : i1
+  // CHECK: comb.xor %arg0, %arg0 : i1
+  %7 = moore.add %arg0, %arg0 : !moore.bit
+  %8 = moore.sub %arg0, %arg0 : !moore.bit
+  %9 = moore.mul %arg0, %arg0 : !moore.bit
+  %10 = moore.div %arg0, %arg0 : !moore.bit
+  %12 = moore.mod %arg0, %arg0 : !moore.bit
+  %13 = moore.and %arg0, %arg0 : !moore.bit
+  %14 = moore.or %arg0, %arg0 : !moore.bit
+  %15 = moore.xor %arg0, %arg0 : !moore.bit
+  
+  // CHECK: comb.icmp ult %arg0, %arg0 : i1
+  // CHECK: comb.icmp ule %arg0, %arg0 : i1
+  // CHECK: comb.icmp ugt %arg0, %arg0 : i1
+  // CHECK: comb.icmp uge %arg0, %arg0 : i1
+  // CHECK: comb.icmp eq %arg0, %arg0 : i1
+  // CHECK: comb.icmp ne %arg0, %arg0 : i1
+  // CHECK: comb.icmp ceq %arg0, %arg0 : i1
+  // CHECK: comb.icmp cne %arg0, %arg0 : i1
+  // CHECK: comb.icmp weq %arg0, %arg0 : i1
+  // CHECK: comb.icmp wne %arg0, %arg0 : i1
+  %16 = moore.lt %arg0, %arg0 : !moore.bit -> !moore.bit
+  %17 = moore.le %arg0, %arg0 : !moore.bit -> !moore.bit
+  %18 = moore.gt %arg0, %arg0 : !moore.bit -> !moore.bit
+  %19 = moore.ge %arg0, %arg0 : !moore.bit -> !moore.bit
+  %20 = moore.eq %arg0, %arg0 : !moore.bit -> !moore.bit
+  %21 = moore.ne %arg0, %arg0 : !moore.bit -> !moore.bit
+  %22 = moore.case_eq %arg0, %arg0 : !moore.bit 
+  %23 = moore.case_ne %arg0, %arg0 : !moore.bit
+  %24 = moore.wildcard_eq %arg0, %arg0 : !moore.bit -> !moore.bit
+  %25 = moore.wildcard_ne %arg0, %arg0 : !moore.bit -> !moore.bit
+
+  // CHECK: hw.constant 12 : i32
+  // CHECK: hw.constant 3 : i6
+  %28 = moore.constant 12 : !moore.int
+  %29 = moore.constant 3 : !moore.packed<range<bit, 5:0>>
+
   // CHECK-NEXT: return
   return
 }

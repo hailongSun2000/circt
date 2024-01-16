@@ -56,6 +56,13 @@ static Value adjustIntegerWidth(OpBuilder &builder, Value value,
   return builder.create<comb::MuxOp>(loc, isZero, lo, max, false);
 }
 
+template <typename ConcreteOp>
+static bool isSignedResultType(ConcreteOp op) {
+  return cast<UnpackedType>(op.getResult().getType())
+      .castToSimpleBitVector()
+      .isSigned();
+}
+
 //===----------------------------------------------------------------------===//
 // Expression Conversion
 //===----------------------------------------------------------------------===//
@@ -78,6 +85,121 @@ struct ConcatOpConversion : public OpConversionPattern<ConcatOp> {
   matchAndRewrite(ConcatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<comb::ConcatOp>(op, adaptor.getValues());
+    return success();
+  }
+};
+
+/// Lowering the moore::BinaryOp to the comb::UTVariadicOp, which includes
+/// the comb::SubOp(UTBinOp). Maybe the DivOp and the ModOp will be supported
+/// after properly handling the signed expr.
+template <typename SourceOp, typename TargetOp>
+struct BinaryOpConversion : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.replaceOpWithNewOp<TargetOp>(op, adaptor.getLhs(),
+                                          adaptor.getRhs(), false);
+    return success();
+  }
+};
+
+struct DivOpConversion : public OpConversionPattern<DivOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(DivOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type resultType = typeConverter->convertType(op.getResult().getType());
+
+    if (isSignedResultType(op))
+      rewriter.replaceOpWithNewOp<comb::DivSOp>(
+          op, resultType, adaptor.getLhs(), adaptor.getRhs(), false);
+
+    rewriter.replaceOpWithNewOp<comb::DivUOp>(op, resultType, adaptor.getLhs(),
+                                              adaptor.getRhs(), false);
+    return success();
+  }
+};
+
+struct ModOpConversion : public OpConversionPattern<ModOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ModOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type resultType = typeConverter->convertType(op.getResult().getType());
+
+    if (isSignedResultType(op))
+      rewriter.replaceOpWithNewOp<comb::ModSOp>(
+          op, resultType, adaptor.getLhs(), adaptor.getRhs(), false);
+
+    rewriter.replaceOpWithNewOp<comb::ModUOp>(op, resultType, adaptor.getLhs(),
+                                              adaptor.getRhs(), false);
+    return success();
+  }
+};
+
+template <typename SourceOp>
+struct ICmpOpConversion : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adapter,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type resultType =
+        ConversionPattern::typeConverter->convertType(op.getResult().getType());
+
+    using comb::ICmpPredicate;
+    ICmpPredicate pred;
+    llvm::StringLiteral opName = op.getOperationName();
+    if (opName == "moore.lt")
+      pred = isSignedResultType(op) ? ICmpPredicate::slt : ICmpPredicate::ult;
+    else if (opName == "moore.le")
+      pred = isSignedResultType(op) ? ICmpPredicate::sle : ICmpPredicate::ule;
+    else if (opName == "moore.gt")
+      pred = isSignedResultType(op) ? ICmpPredicate::sgt : ICmpPredicate::ugt;
+    else if (opName == "moore.ge")
+      pred = isSignedResultType(op) ? ICmpPredicate::sge : ICmpPredicate::uge;
+    else if (opName == "moore.eq")
+      pred = ICmpPredicate::eq;
+    else if (opName == "moore.ne")
+      pred = ICmpPredicate::ne;
+    else if (opName == "moore.case_eq")
+      pred = ICmpPredicate::ceq;
+    else if (opName == "moore.case_ne")
+      pred = ICmpPredicate::cne;
+    else if (opName == "moore.wildcard_eq")
+      pred = ICmpPredicate::weq;
+    else if (opName == "moore.wildcard_ne")
+      pred = ICmpPredicate::wne;
+    else
+      llvm_unreachable("Missing relation/(wildcard/case)equlity op to "
+                       "comb::ICmpOp conversion");
+
+    rewriter.replaceOpWithNewOp<comb::ICmpOp>(
+        op, resultType, pred, adapter.getLhs(), adapter.getRhs());
+    return success();
+  }
+};
+
+struct ExtractOpConversion : public OpConversionPattern<ExtractOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ExtractOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value value = adaptor.getInput();
+    uint32_t lowBit = adaptor.getLowBit();
+    uint32_t width = cast<UnpackedType>(op.getResult().getType())
+                         .castToSimpleBitVectorOrNull()
+                         .size;
+
+    rewriter.replaceOpWithNewOp<comb::ExtractOp>(op, value, lowBit, width);
     return success();
   }
 };
@@ -292,6 +414,25 @@ static void populateOpConversion(RewritePatternSet &patterns,
     ShlOpConversion,
     ShrOpConversion,
     AShrOpConversion,
+    BinaryOpConversion<AddOp, comb::AddOp>,
+    BinaryOpConversion<SubOp, comb::SubOp>,
+    BinaryOpConversion<MulOp, comb::MulOp>,
+    BinaryOpConversion<AndOp, comb::AndOp>,
+    BinaryOpConversion<OrOp, comb::OrOp>,
+    BinaryOpConversion<XorOp, comb::XorOp>,
+    DivOpConversion,
+    ModOpConversion,
+    ICmpOpConversion<LtOp>,
+    ICmpOpConversion<LeOp>,
+    ICmpOpConversion<GtOp>,
+    ICmpOpConversion<GeOp>,
+    ICmpOpConversion<EqOp>,
+    ICmpOpConversion<NeOp>,
+    ICmpOpConversion<CaseEqOp>,
+    ICmpOpConversion<CaseNeOp>,
+    ICmpOpConversion<WildcardEqOp>,
+    ICmpOpConversion<WildcardNeOp>,
+    ExtractOpConversion,
     UnrealizedConversionCastConversion
   >(typeConverter, context);
   // clang-format on
