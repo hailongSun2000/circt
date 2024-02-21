@@ -58,6 +58,8 @@ struct Context {
   moore::SVModuleOp
   convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
+  LogicalResult
+  convertStatementBlock(const slang::ast::StatementBlockSymbol *stmt);
 
   // Convert a statement AST node to MLIR ops.
   LogicalResult convertStatement(const slang::ast::Statement &stmt);
