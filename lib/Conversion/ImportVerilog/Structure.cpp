@@ -9,16 +9,6 @@
 #include "ImportVerilogInternals.h"
 #include "slang/ast/Compilation.h"
 
-// #include "slang/ast/ASTVisitor.h"
-// #include "slang/ast/Symbol.h"
-// #include "slang/ast/symbols/CompilationUnitSymbols.h"
-// #include "slang/ast/symbols/InstanceSymbols.h"
-// #include "slang/ast/symbols/VariableSymbols.h"
-// #include "slang/ast/types/AllTypes.h"
-// #include "slang/ast/types/Type.h"
-// #include "slang/syntax/SyntaxVisitor.h"
-// #include "llvm/ADT/StringRef.h"
-
 using namespace circt;
 using namespace ImportVerilog;
 
@@ -119,9 +109,40 @@ struct MemberVisitor {
     if (!targetModule)
       return failure();
 
+    const auto *instBodySymbol =
+        instNode.body.as_if<slang::ast::InstanceBodySymbol>();
+
+    for (auto &member : instBodySymbol->members())
+      if (member.kind == slang::ast::SymbolKind::Port) {
+        const auto *p = member.as_if<slang::ast::PortSymbol>();
+        context.pInfo[&p->location] = p->direction;
+      }
+
+    SmallVector<Value> inPorts, outPorts;
+    for (auto *connections : instNode.getPortConnections()) {
+      Value port;
+      if (connections->getExpression()) {
+        if (auto *expr = connections->getExpression()
+                             ->as_if<slang::ast::AssignmentExpression>()) {
+          port = context.convertExpression(expr->left());
+        } else {
+          port = context.convertExpression(*connections->getExpression());
+        }
+
+        auto it = context.pInfo.find(&connections->port.location);
+        if (it->second != slang::ast::ArgumentDirection::Out)
+          inPorts.push_back(port);
+        else
+          outPorts.push_back(port);
+
+      } else {
+        // TODO: connect interface to mudule instance.
+      }
+    }
     builder.create<moore::InstanceOp>(
         loc, builder.getStringAttr(instNode.name),
-        FlatSymbolRefAttr::get(targetModule.getSymNameAttr()));
+        FlatSymbolRefAttr::get(SymbolTable::getSymbolName(targetModule)),
+        inPorts, outPorts);
 
     return success();
   }
@@ -161,10 +182,12 @@ struct MemberVisitor {
         return failure();
     }
 
-    auto netOp = builder.create<moore::NetOp>(
-        loc, loweredType, builder.getStringAttr(netNode.name),
-        builder.getStringAttr(netNode.netType.name), assignment);
-    context.valueSymbols.insert(&netNode, netOp);
+    if (!context.varSymbolTable.lookup(netNode.name)) {
+      auto netOp = builder.create<moore::NetOp>(
+          loc, loweredType, builder.getStringAttr(netNode.name),
+          builder.getStringAttr(netNode.netType.name), assignment);
+      context.varSymbolTable.insert(netNode.name, netOp);
+    }
     return success();
   }
 
@@ -174,9 +197,10 @@ struct MemberVisitor {
     if (!loweredType)
       return failure();
     // TODO: Fix the `static_cast` here.
-    builder.create<moore::PortOp>(
-        loc, builder.getStringAttr(portNode.name),
+    auto portOp = builder.create<moore::PortOp>(
+        loc, loweredType, builder.getStringAttr(portNode.name),
         static_cast<moore::Direction>(portNode.direction));
+    context.varSymbolTable.insert(portNode.name, portOp);
     return success();
   }
 

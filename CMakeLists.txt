@@ -556,7 +556,7 @@ endif()
 # slang Verilog Frontend
 #-------------------------------------------------------------------------------
 
-option(CIRCT_SLANG_FRONTEND_ENABLED "Enables the slang Verilog frontend." OFF)
+option(CIRCT_SLANG_FRONTEND_ENABLED "Enables the slang Verilog frontend." ON)
 option(CIRCT_SLANG_BUILD_FROM_SOURCE
   "Build slang from source instead of finding an installed package" ON)
 

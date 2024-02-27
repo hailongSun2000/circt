@@ -69,20 +69,11 @@ struct Context {
 
   // Convert a slang timing control into an MLIR timing control.
   LogicalResult
-  visitTimingControl(const slang::ast::TimingControl *timingControl);
+  convertTimingControl(const slang::ast::TimingControl &timingControl);
 
-  LogicalResult visitDelay(const slang::ast::DelayControl *delay);
-  LogicalResult visitDelay3(const slang::ast::Delay3Control *delay3);
-  LogicalResult
-  visitSignalEvent(const slang::ast::SignalEventControl *signalEventControl);
-  LogicalResult
-  visitImplicitEvent(const slang::ast::ImplicitEventControl *implEventControl);
-  LogicalResult visitRepeatedEvent(
-      const slang::ast::RepeatedEventControl *repeatedEventControl);
-  LogicalResult
-  visitOneStepDelay(const slang::ast::OneStepDelayControl *oneStepDelayControl);
-  LogicalResult
-  visitCycleDelay(const slang::ast::CycleDelayControl *cycleDelayControl);
+  void pushLValue(mlir::Value *lval);
+  void popLValue();
+  mlir::Value *getTopLValue() const;
 
   mlir::ModuleOp intoModuleOp;
   const slang::SourceManager &sourceManager;
@@ -95,6 +86,9 @@ struct Context {
   /// The top-level operations ordered by their Slang source location. This is
   /// used to produce IR that follows the source file order.
   std::map<slang::SourceLocation, Operation *> orderedRootOps;
+  /// Mapping port address with its direction that is convenient to sort ports
+  /// of different types in handling instance logic.
+  DenseMap<const slang::SourceLocation *, slang::ast::ArgumentDirection> pInfo;
   /// How we have lowered modules to MLIR.
   DenseMap<const slang::ast::InstanceBodySymbol *, moore::SVModuleOp> moduleOps;
   /// A list of modules for which the header has been created, but the body has
