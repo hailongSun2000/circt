@@ -211,9 +211,7 @@ struct ProcedureOpConv : public OpConversionPattern<ProcedureOp> {
     switch (adaptor.getKind()) {
     case ProcedureKind::AlwaysComb:
       rewriter.setInsertionPointAfter(op->getPrevNode());
-      rewriter.inlineBlockBefore(&op.getBodyBlock(),
-                                 op->getPrevNode()->getBlock(),
-                                 rewriter.getInsertionPoint());
+      rewriter.inlineBlockBefore(op.getBody(), op);
       rewriter.eraseOp(op);
       return success();
     case ProcedureKind::Always:
