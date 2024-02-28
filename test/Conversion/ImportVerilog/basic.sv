@@ -270,6 +270,9 @@ module Expressions;
   int a, b, c;
   int unsigned u;
   bit [1:0][3:0] v;
+  bit [1:0] r;
+  bit [3:0] s;
+  bit [3:0] arr [0:3][0:7];
   integer d, e, f;
   bit x;
   logic y;
@@ -552,6 +555,21 @@ module Expressions;
     // CHECK: [[TMP2:%.+]] = moore.add [[A_ADD]], [[TMP1]]
     // CHECK: moore.blocking_assign %a, [[TMP2]]
     a += (a *= a--);
+
+    // RangeSelect & ElementSelect operator
+    // CHECK: moore.extract %s from 2 : !moore.packed<range<bit, 3:0>> -> !moore.packed<range<bit, 3:2>>
+    // CHECK: moore.extract %s from 2 : !moore.packed<range<bit, 3:0>> -> !moore.bit
+    r = s[3-:2];
+    x = s[2];
+
+    // CHECK: [[TMP1:%.+]] = moore.extract %arr from 1 : !moore.unpacked<range<range<packed<range<bit, 3:0>>, 0:7>, 0:3>> -> !moore.unpacked<range<packed<range<bit, 3:0>>, 0:7>>
+    // CHECK: [[TMP2:%.+]] = moore.extract [[TMP1]] from 4 : !moore.unpacked<range<packed<range<bit, 3:0>>, 0:7>> -> !moore.packed<range<bit, 3:0>>
+    // CHECK: moore.extract [[TMP2]] from 2 : !moore.packed<range<bit, 3:0>> -> !moore.packed<range<bit, 3:2>>
+    s = arr[1][4][3:2];
+
+    // CHECK: [[TMP:%.+]] = moore.concat %r : (!moore.packed<range<bit, 1:0>>) -> !moore.packed<range<bit, 1:0>>
+    // CHECK: moore.replicate [[TMP]] : (!moore.packed<range<bit, 1:0>>) -> !moore.packed<range<bit, 3:0>>
+    s = {2{r}};
   end
 endmodule
 

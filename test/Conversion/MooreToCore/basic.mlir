@@ -149,8 +149,8 @@ moore.module @Expressions {
 
   // CHECK-NEXT: comb.extract %arg2 from 2 : (i6) -> i2
   // CHECK-NEXT: comb.extract %arg2 from 2 : (i6) -> i1
-  %30 = moore.extract %arg2 from 2 : (!moore.packed<range<bit, 5:0>>) -> !moore.packed<range<bit, 3:2>>
-  %31 = moore.extract %arg2 from 2 : (!moore.packed<range<bit, 5:0>>) -> !moore.bit
+  %30 = moore.extract %arg2 from 2 : !moore.packed<range<bit, 5:0>> -> !moore.packed<range<bit, 3:2>>
+  %31 = moore.extract %arg2 from 2 : !moore.packed<range<bit, 5:0>> -> !moore.bit
 
   // CHECK-NEXT: %c12_i32 = hw.constant 12 : i32
   // CHECK-NEXT: %c3_i6 = hw.constant 3 : i6

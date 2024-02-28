@@ -341,6 +341,34 @@ struct ExprVisitor {
     return builder.create<moore::ConcatOp>(loc, operands);
   }
 
+  Value visit(const slang::ast::ReplicationExpression &expr) {
+    auto type = context.convertType(*expr.type);
+    auto value = context.convertExpression(expr.concat());
+    auto multiple = *expr.count().constant->integer().getRawPtr();
+    if (!value || !multiple)
+      return {};
+    return builder.create<moore::ReplicateOp>(loc, type, value);
+  }
+
+  Value visit(const slang::ast::ElementSelectExpression &expr) {
+    auto type = context.convertType(*expr.type);
+    auto value = context.convertExpression(expr.value());
+    auto lowBit = *expr.selector().constant->integer().getRawPtr();
+    if (!value && !lowBit)
+      return {};
+    return builder.create<moore::ExtractOp>(loc, type, value, lowBit);
+  }
+  Value visit(const slang::ast::RangeSelectExpression &expr) {
+    auto type = context.convertType(*expr.type);
+    auto value = context.convertExpression(expr.value());
+    auto lhs = *expr.left().constant->integer().getRawPtr();
+    auto rhs = *expr.right().constant->integer().getRawPtr();
+    if (!value && !lhs && !rhs)
+      return {};
+    auto lowBit = (lhs > rhs) ? rhs : lhs;
+    return builder.create<moore::ExtractOp>(loc, type, value, lowBit);
+  }
+
   /// Emit an error for all other expressions.
   template <typename T>
   Value visit(T &&node) {

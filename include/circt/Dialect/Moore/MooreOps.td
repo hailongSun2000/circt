@@ -339,31 +339,34 @@ def NonBlockingAssignOp : AssignOpBase<"nonblocking_assign"> {
 //===----------------------------------------------------------------------===//
 
 def None: I32EnumAttrCase<"None", 0, "none">;
+/// Transit from 0 to x/z/1, and from x/z to 1.
 def PosEdge: I32EnumAttrCase<"PosEdge", 1, "posedge">;
+/// Transit from 1 to x/z/0, and from x/z to 0.
 def NegEdge: I32EnumAttrCase<"NegEdge", 2, "negedge">;
-def BothEdges: I32EnumAttrCase<"BothEdges", 3, "bothedges">;
-
+/// Include the negedge and posedge.
+def BothEdges: I32EnumAttrCase<"BothEdges", 3, "edge">;
 def EdgeAtrr: I32EnumAttr<"Edge", "Edge kind",
                           [None, PosEdge, NegEdge, BothEdges]>{
   let cppNamespace = "circt::moore";
 }
-
 def EventControlOp : MooreOp<"event", [
   HasParent<"ProcedureOp">
 ]> {
   let summary = "Detecting posedge and negedge";
   let description = [{
+    It is introduced by the symbol `@`, and it allows statement execution to
+    be delayed until the occurrence of some simulation event occurring in a
+    procedure executing concurrently with this procedure.
     Example:
     ```mlir
-      moore.event posedge "clk"
-      moore.event negedge "clk"
+      moore.event posedge %clk : !moore.logic
     ```
     See IEEE 1800-2017 § 9.4.2 "Event control".
   }];
-  let arguments = (ins EdgeAtrr:$edge, StrAttr:$name);
+  let arguments = (ins EdgeAtrr:$edge, UnpackedType:$input);
   let results = (outs);
   let assemblyFormat = [{
-    $edge $name attr-dict
+    $edge $input attr-dict `:` type($input)
   }];
 }
 
