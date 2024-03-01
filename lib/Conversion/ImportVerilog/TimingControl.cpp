@@ -1,3 +1,11 @@
+//===- TimingControl.cpp - Slang timing control conversion ----------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include "slang/ast/TimingControl.h"
 #include "ImportVerilogInternals.h"
 using namespace circt;
@@ -7,6 +15,10 @@ struct TimingCtrlVisitor {
   Context &context;
   Location loc;
   OpBuilder &builder;
+
+  TimingCtrlVisitor(Context &context, Location loc)
+      : context(context), loc(loc), builder(context.builder) {}
+
   LogicalResult visit(const slang::ast::SignalEventControl &ctrl) {
     auto loc = context.convertLocation(ctrl.sourceRange.start());
     auto input = context.convertExpression(ctrl.expr);
@@ -37,9 +49,10 @@ struct TimingCtrlVisitor {
   }
 };
 } // namespace
+
 LogicalResult
 Context::convertTimingControl(const slang::ast::TimingControl &timingControl) {
   auto loc = convertLocation(timingControl.sourceRange.start());
-  TimingCtrlVisitor visitor{*this, loc, builder};
+  TimingCtrlVisitor visitor{*this, loc};
   return timingControl.visit(visitor);
 }

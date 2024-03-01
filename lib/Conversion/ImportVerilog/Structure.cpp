@@ -227,11 +227,6 @@ struct MemberVisitor {
     return success();
   }
 
-  // Handle statement blocks.
-  LogicalResult visit(const slang::ast::StatementBlockSymbol &blockNode) {
-    return context.convertStatementBlock(&blockNode);
-  }
-
   // Handle procedures.
   LogicalResult visit(const slang::ast::ProceduralBlockSymbol &procNode) {
     auto procOp = builder.create<moore::ProcedureOp>(
@@ -251,16 +246,6 @@ struct MemberVisitor {
   // variable layout _next to_ the initial procedure.
   LogicalResult visit(const slang::ast::StatementBlockSymbol &) {
     return success();
-  }
-
-  // Handle procedures.
-  LogicalResult visit(const slang::ast::ProceduralBlockSymbol &procNode) {
-    auto procOp = builder.create<moore::ProcedureOp>(
-        loc, convertProcedureKind(procNode.procedureKind));
-    procOp.getBodyRegion().emplaceBlock();
-    OpBuilder::InsertionGuard guard(builder);
-    builder.setInsertionPointToEnd(procOp.getBody());
-    return context.convertStatement(&procNode.getBody());
   }
 
   /// Emit an error for all other members.
