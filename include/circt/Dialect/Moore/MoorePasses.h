@@ -29,16 +29,27 @@ class Declaration {
   // including the declaration assignment.
   DenseMap<Operation *, Value> assignmentChains;
 
-  // Record chains of port op & assignments op. It only records port which is
-  // out direction now.
-  DenseMap<Operation *, Operation *> portChains;
+  // Record chains of output port op and definition op (netOp or variable op)
+  // with the last user of definition op (It faces the situation when has
+  // multiple assignment to a same output port). It only records port which is
+  // output direction.
+  DenseMap<Operation *, std::pair<Operation *, Operation *>> outPortChains;
+
+  // Provide a container which is used on mapping the defined name of net or
+  // variable operation with the operation itself. It is useful when need to
+  // find related definition of port operation via the same name.
+  DenseMap<StringRef, Operation *> nameBindings;
 
 public:
   void addValue(Operation *op);
 
   auto getValue(Operation *op) { return assignmentChains.lookup(op); }
 
-  Operation *getOutputValue(Operation *op) { return portChains.lookup(op); }
+  Operation *getOutputValue(Operation *op) {
+    return outPortChains.lookup(op).second;
+  }
+
+  void buildPortBending(PortOp op);
 };
 
 extern Declaration decl;

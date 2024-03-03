@@ -26,7 +26,9 @@ struct MoorePortInfo {
   std::unique_ptr<hw::ModulePortInfo> hwPorts;
 
   // A mapping between the port name, port op and port type in moore module.
-  DenseMap<StringAttr, std::pair<moore::PortOp, Type>> inputsPort, outputsPort;
+  DenseMap<StringAttr, std::pair<Operation *, Type>> nameMapping;
+
+  DenseMap<moore::PortOp, Operation *> portBinding;
 
   // Constructor
   MoorePortInfo(moore::SVModuleOp moduleOp);

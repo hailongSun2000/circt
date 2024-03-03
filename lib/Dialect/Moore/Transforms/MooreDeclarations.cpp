@@ -28,29 +28,24 @@ struct MooreDeclarationsPass
 void Declaration::addValue(Operation *op) {
   TypeSwitch<Operation *, void>(op)
       // TODO: The loop, if, case, and other statements.
-      .Case<VariableOp, NetOp>([&](auto op) {
+      .Case<VariableOp>([&](auto op) {
         auto operandIt = op.getOperands();
         auto value = operandIt.empty() ? nullptr : op.getOperand(0);
         assignmentChains[op] = value;
+        nameBindings[cast<VariableOp>(op).getName()] = op;
       })
-      .Case<CAssignOp, BPAssignOp, PAssignOp, PCAssignOp>([&](auto op) {
-        auto destOp = op.getOperand(0).getDefiningOp();
-        auto srcValue = op.getOperand(1);
-        assignmentChains[destOp] = srcValue;
+      .Case<NetOp>([&](auto op) {
+        auto operandIt = op.getOperands();
+        auto value = operandIt.empty() ? nullptr : op.getOperand(0);
+        assignmentChains[op] = value;
+        nameBindings[cast<NetOp>(op).getName()] = op;
       })
-      .Case<PortOp>([&](auto op) {
-        SmallVector<Operation *> assignments;
-
-        if (op.getDirection() == Direction::Out) {
-          auto users = op.getResult().getUsers();
-          if (!users.empty()) {
-            for (auto *user : users)
-              assignments.push_back(user);
-
-            portChains[op] = assignments.front();
-          }
-        }
-      })
+      .Case<ContinuousAssignOp, BlockingAssignOp, NonBlockingAssignOp>(
+          [&](auto op) {
+            auto destOp = op.getOperand(0).getDefiningOp();
+            auto srcValue = op.getOperand(1);
+            assignmentChains[destOp] = srcValue;
+          })
       .Case<ProcedureOp>([&](auto op) {
         for (auto &nestOp : op.getOps()) {
           addValue(&nestOp);
@@ -58,12 +53,27 @@ void Declaration::addValue(Operation *op) {
       });
 }
 
+void Declaration::buildPortBending(PortOp op) {
+  SmallVector<Operation *> assignment;
+  if (op.getDirection() == Direction::Out) {
+    auto users = nameBindings[op.getName()]->getUsers();
+    for (auto *user : users)
+      assignment.push_back(user);
+
+    outPortChains[op] =
+        std::make_pair(nameBindings[op.getName()], assignment.front());
+  }
+}
+
 extern Declaration moore::decl;
 void MooreDeclarationsPass::runOnOperation() {
   getOperation()->walk([&](SVModuleOp moduleOp) {
-    for (auto &op : moduleOp.getOps()) {
+    for (auto &op : moduleOp.getOps())
       decl.addValue(&op);
-    };
+
+    for (auto portOp : moduleOp.getOps<PortOp>())
+      decl.buildPortBending(portOp);
+
     return WalkResult::advance();
   });
 }

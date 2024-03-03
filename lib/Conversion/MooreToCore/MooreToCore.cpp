@@ -34,12 +34,23 @@ Declaration moore::decl;
 MoorePortInfo::MoorePortInfo(moore::SVModuleOp moduleOp) {
   SmallVector<hw::PortInfo, 4> inputs, outputs;
 
+  for (auto netOp : moduleOp.getBody()->getOps<NetOp>())
+    nameMapping[netOp.getNameAttr()] = std::make_pair(netOp, netOp.getType());
+
+  for (auto varOp : moduleOp.getBody()->getOps<VariableOp>())
+    nameMapping[varOp.getNameAttr()] = std::make_pair(varOp, varOp.getType());
+
   // Gather all input or output ports.
   for (auto portOp : moduleOp.getBody()->getOps<PortOp>()) {
-    auto portName = portOp.getNameAttr();
-    auto portLoc = portOp.getLoc();
-    auto portTy = portOp.getType();
+    mlir::Type portTy;
     auto argNum = inputs.size();
+    auto portLoc = portOp.getLoc();
+    auto portName = portOp.getNameAttr();
+
+    if (nameMapping.contains(portName)) {
+      portTy = nameMapping[portName].second;
+      portBinding[portOp] = nameMapping[portName].first;
+    }
 
     switch (portOp.getDirection()) {
     case Direction::In:
@@ -48,7 +59,7 @@ MoorePortInfo::MoorePortInfo(moore::SVModuleOp moduleOp) {
                        argNum,
                        {},
                        portLoc});
-      inputsPort[portName] = std::make_pair(portOp, portTy);
+
       break;
     case Direction::InOut:
       inputs.push_back(hw::PortInfo{{portName, hw::InOutType::get(portTy),
@@ -56,16 +67,14 @@ MoorePortInfo::MoorePortInfo(moore::SVModuleOp moduleOp) {
                                     argNum,
                                     {},
                                     portLoc});
-      inputsPort[portName] = std::make_pair(portOp, portTy);
       break;
     case Direction::Out:
-      if (!portOp->getUsers().empty())
+      if (!portBinding[portOp]->getUsers().empty())
         outputs.push_back(
             hw::PortInfo{{portName, portTy, hw::ModulePort::Direction::Output},
                          argNum,
                          {},
                          portOp.getLoc()});
-      outputsPort[portName] = std::make_pair(portOp, portTy);
       break;
     case Direction::Ref:
       // TODO: Support parsing Direction::Ref port into portInfo structure.
@@ -176,20 +185,20 @@ struct SVModuleOpConv : public OpConversionPattern<SVModuleOp> {
     // block arguments. And update relating uses chain.
     for (auto [index, input] : llvm::enumerate(mp.hwPorts->getInputs())) {
       BlockArgument newArg;
-      auto portOp = mp.inputsPort.at(input.name).first;
-      auto inputTy = mp.inputsPort.at(input.name).second;
+      auto *portDefOp = mp.nameMapping.at(input.name).first;
+      auto inputTy = mp.nameMapping.at(input.name).second;
       rewriter.modifyOpInPlace(hwModuleOp, [&]() {
-        newArg = hwBody->addArgument(inputTy, portOp.getLoc());
+        newArg = hwBody->addArgument(inputTy, portDefOp->getLoc());
       });
-      rewriter.replaceAllUsesWith(portOp.getResult(), newArg);
+      rewriter.replaceAllUsesWith(portDefOp->getResult(0), newArg);
     }
 
     // Adjust all relating logic of output port definitions for rewriting
     // hw.output op.
     SmallVector<Value> outputValues;
     for (auto [index, output] : llvm::enumerate(mp.hwPorts->getOutputs())) {
-      auto portOp = mp.outputsPort.at(output.name).first;
-      outputValues.push_back(portOp->getResult(0));
+      auto *portDefOp = mp.nameMapping.at(output.name).first;
+      outputValues.push_back(portDefOp->getResult(0));
     }
 
     // Rewrite the hw.output op
@@ -272,27 +281,35 @@ struct InstanceOpConv : public OpConversionPattern<InstanceOp> {
 };
 
 struct PortOpConv : public OpConversionPattern<PortOp> {
-  using OpConversionPattern::OpConversionPattern;
+  PortOpConv(TypeConverter &typeConverter, MLIRContext *ctx,
+             MoorePortInfoMap &portMap)
+      : OpConversionPattern<PortOp>(typeConverter, ctx), portMap(portMap) {}
 
   LogicalResult
   matchAndRewrite(PortOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto hwmod = op->getParentOfType<hw::HWModuleOp>();
+    auto binding = portMap.at(hwmod.getModuleNameAttr()).portBinding;
+
     switch (op.getDirection()) {
-    // The users of In / InOut direction port are replaced in the
-    // HWModuleOp's generation. When it has no users left, erase itself.
+    // The users of definition operation (The In / InOut direction port's
+    // definition op) are replaced in the HWModuleOp's generation. When it has
+    // no users left, erase itself.
     case Direction::In:
     case Direction::InOut:
-      if (op->getUsers().empty())
-        rewriter.eraseOp(op);
+      if (binding[op]->getUsers().empty())
+        rewriter.eraseOp(binding[op]);
+      rewriter.eraseOp(op);
       break;
 
-      // Handle the users of Out direction port, if there is no user left, erase
-      // itself.
+      // Handle the users of definition operation (The Out direction port's
+      // definition op), if there is no user left, erase itself.
     case Direction::Out:
-      if (!op->getUsers().empty())
-        op.getResult().replaceAllUsesWith(
+      if (!binding[op]->getUsers().empty()) {
+        binding[op]->getResult(0).replaceAllUsesWith(
             decl.getOutputValue(op)->getOperand(1));
-
+        rewriter.eraseOp(binding[op]);
+      }
       rewriter.eraseOp(op);
       break;
 
@@ -303,6 +320,8 @@ struct PortOpConv : public OpConversionPattern<PortOp> {
     }
     return success();
   }
+
+  MoorePortInfoMap &portMap;
 };
 
 //===----------------------------------------------------------------------===//
@@ -638,31 +657,22 @@ static void populateLegality(ConversionTarget &target) {
   target.addLegalDialect<comb::CombDialect>();
   target.addLegalDialect<mlir::BuiltinDialect>();
   target.addLegalDialect<scf::SCFDialect>();
+  target.addIllegalDialect<MooreDialect>();
+
   addGenericLegality<cf::CondBranchOp>(target);
   addGenericLegality<cf::BranchOp>(target);
   addGenericLegality<UnrealizedConversionCastOp>(target);
-}
 
-static void populateSelectionalLegality(ConversionTarget &target,
-                                        bool isConvertStructure) {
-  if (isConvertStructure) {
-    target.addLegalDialect<MooreDialect>();
-    target.addIllegalOp<moore::SVModuleOp>();
-    target.addIllegalOp<moore::InstanceOp>();
-    target.addIllegalOp<moore::PortOp>();
-  } else {
-    target.addIllegalDialect<MooreDialect>();
-    target.addDynamicallyLegalOp<hw::HWModuleOp>([](hw::HWModuleOp op) {
-      return !hasMooreType(op.getInputTypes()) &&
-             !hasMooreType(op.getOutputTypes()) &&
-             !hasMooreType(op.getBody().getArgumentTypes());
-    });
-    target.addDynamicallyLegalOp<hw::OutputOp>(
-        [](hw::OutputOp op) { return !hasMooreType(op.getOutputs()); });
-    target.addDynamicallyLegalOp<hw::InstanceOp>([](hw::InstanceOp op) {
-      return !hasMooreType(op.getInputs()) && !hasMooreType(op->getResults());
-    });
-  }
+  target.addDynamicallyLegalOp<hw::HWModuleOp>([](hw::HWModuleOp op) {
+    return !hasMooreType(op.getInputTypes()) &&
+           !hasMooreType(op.getOutputTypes()) &&
+           !hasMooreType(op.getBody().getArgumentTypes());
+  });
+  target.addDynamicallyLegalOp<hw::OutputOp>(
+      [](hw::OutputOp op) { return !hasMooreType(op.getOutputs()); });
+  target.addDynamicallyLegalOp<hw::InstanceOp>([](hw::InstanceOp op) {
+    return !hasMooreType(op.getInputs()) && !hasMooreType(op->getResults());
+  });
 }
 
 static void populateTypeConversion(TypeConverter &typeConverter) {
@@ -699,9 +709,8 @@ void circt::populateMooreStructureConversionPatterns(
     circt::MoorePortInfoMap &portInfoMap) {
   auto *context = patterns.getContext();
 
-  patterns.add<SVModuleOpConv, InstanceOpConv>(typeConverter, context,
-                                               portInfoMap);
-  patterns.add<PortOpConv>(typeConverter, context);
+  patterns.add<SVModuleOpConv, InstanceOpConv, PortOpConv>(
+      typeConverter, context, portInfoMap);
 }
 
 void circt::populateMooreToCoreConversionPatterns(TypeConverter &typeConverter,
@@ -710,7 +719,7 @@ void circt::populateMooreToCoreConversionPatterns(TypeConverter &typeConverter,
   // clang-format off
   patterns.add<
     // Patterns of assignment operations.
-    AssignOpConv<CAssignOp>, AssignOpConv<BPAssignOp>,
+    AssignOpConv<ContinuousAssignOp>, AssignOpConv<BlockingAssignOp>,
 
     // Patterns of branch operations.
     BranchOpConv, CondBranchOpConv,
@@ -788,17 +797,9 @@ void MooreToCorePass::runOnOperation() {
   populateTypeConversion(typeConverter);
   populateLegality(target);
 
-  // First to convert structral moore operations to hw.
-  populateSelectionalLegality(target, true);
+  // Convert moore operations to core ir.
   populateMooreStructureConversionPatterns(typeConverter, patterns,
                                            portInfoMap);
-
-  if (failed(applyPartialConversion(module, target, std::move(patterns))))
-    signalPassFailure();
-  patterns.clear();
-
-  // Second to convert miscellaneous moore operations to core ir.
-  populateSelectionalLegality(target, false);
   populateMooreToCoreConversionPatterns(typeConverter, patterns);
 
   if (failed(applyFullConversion(module, target, std::move(patterns))))

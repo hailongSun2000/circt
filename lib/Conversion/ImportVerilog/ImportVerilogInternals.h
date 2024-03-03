@@ -58,8 +58,6 @@ struct Context {
   moore::SVModuleOp
   convertModuleHeader(const slang::ast::InstanceBodySymbol *module);
   LogicalResult convertModuleBody(const slang::ast::InstanceBodySymbol *module);
-  LogicalResult
-  convertStatementBlock(const slang::ast::StatementBlockSymbol *stmt);
 
   // Convert a statement AST node to MLIR ops.
   LogicalResult convertStatement(const slang::ast::Statement &stmt);
@@ -88,7 +86,8 @@ struct Context {
   std::map<slang::SourceLocation, Operation *> orderedRootOps;
   /// Mapping port address with its direction that is convenient to sort ports
   /// of different types in handling instance logic.
-  DenseMap<const slang::SourceLocation *, slang::ast::ArgumentDirection> pInfo;
+  DenseMap<const slang::SourceLocation *, slang::ast::ArgumentDirection>
+      instancePortInfo;
   /// How we have lowered modules to MLIR.
   DenseMap<const slang::ast::InstanceBodySymbol *, moore::SVModuleOp> moduleOps;
   /// A list of modules for which the header has been created, but the body has

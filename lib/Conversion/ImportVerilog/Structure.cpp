@@ -115,7 +115,7 @@ struct MemberVisitor {
     for (auto &member : instBodySymbol->members())
       if (member.kind == slang::ast::SymbolKind::Port) {
         const auto *p = member.as_if<slang::ast::PortSymbol>();
-        context.pInfo[&p->location] = p->direction;
+        context.instancePortInfo[&p->location] = p->direction;
       }
 
     SmallVector<Value> inPorts, outPorts;
@@ -129,7 +129,7 @@ struct MemberVisitor {
           port = context.convertExpression(*connections->getExpression());
         }
 
-        auto it = context.pInfo.find(&connections->port.location);
+        auto it = context.instancePortInfo.find(&connections->port.location);
         if (it->second != slang::ast::ArgumentDirection::Out)
           inPorts.push_back(port);
         else
@@ -137,6 +137,7 @@ struct MemberVisitor {
 
       } else {
         // TODO: connect interface to mudule instance.
+        return failure();
       }
     }
     builder.create<moore::InstanceOp>(
@@ -182,12 +183,10 @@ struct MemberVisitor {
         return failure();
     }
 
-    if (!context.varSymbolTable.lookup(netNode.name)) {
-      auto netOp = builder.create<moore::NetOp>(
-          loc, loweredType, builder.getStringAttr(netNode.name),
-          builder.getStringAttr(netNode.netType.name), assignment);
-      context.varSymbolTable.insert(netNode.name, netOp);
-    }
+    auto netOp = builder.create<moore::NetOp>(
+        loc, loweredType, builder.getStringAttr(netNode.name),
+        builder.getStringAttr(netNode.netType.name), assignment);
+    context.valueSymbols.insert(&netNode, netOp);
     return success();
   }
 
@@ -197,10 +196,9 @@ struct MemberVisitor {
     if (!loweredType)
       return failure();
     // TODO: Fix the `static_cast` here.
-    auto portOp = builder.create<moore::PortOp>(
-        loc, loweredType, builder.getStringAttr(portNode.name),
+    builder.create<moore::PortOp>(
+        loc, builder.getStringAttr(portNode.name),
         static_cast<moore::Direction>(portNode.direction));
-    context.varSymbolTable.insert(portNode.name, portOp);
     return success();
   }
 
@@ -380,41 +378,4 @@ Context::convertModuleBody(const slang::ast::InstanceBodySymbol *module) {
   }
 
   return success();
-}
-
-LogicalResult
-Context::convertStatementBlock(const slang::ast::StatementBlockSymbol *stmt) {
-  for (auto &member : stmt->members()) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "- Handling " << slang::ast::toString(member.kind) << "\n");
-    auto loc = convertLocation(member.location);
-
-    // Handle variables.
-    if (auto *varAst = member.as_if<slang::ast::VariableSymbol>()) {
-      auto loweredType = convertType(*varAst->getDeclaredType());
-      if (!loweredType)
-        return failure();
-
-      Value initial;
-      if (varAst->getInitializer())
-        initial = convertExpression(*varAst->getInitializer());
-
-      auto varOp = builder.create<moore::VariableOp>(
-          convertLocation(varAst->location), loweredType,
-          builder.getStringAttr(varAst->name), initial);
-      varSymbolTable.insert(varAst->name, varOp);
-      continue;
-    }
-
-    // Handle StatementBlock.
-    if (auto *stmtAst = member.as_if<slang::ast::StatementBlockSymbol>()) {
-      if (failed(convertStatementBlock(stmtAst)))
-        return failure();
-      continue;
-    }
-
-    mlir::emitWarning(loc, "unsupported construct ignored: ")
-        << slang::ast::toString(member.kind);
-  }
-  return mlir::success();
 }

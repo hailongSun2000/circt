@@ -5,10 +5,14 @@
 // CHECK-SAME: %[[IN2:.*]] : i32, in
 // CHECK-SAME: %[[IN3:.*]] : i1, out res : i1) {
 moore.module @MoorePortsAndAssignments {
-  %arg0 = moore.port In : !moore.byte
-  %arg1 = moore.port In : !moore.int
-  %arg2 = moore.port In : !moore.bit
-  %res = moore.port Out : !moore.logic
+  moore.port In "arg0"
+  %arg0 = moore.net "wire" : !moore.byte
+  moore.port In "arg1"
+  %arg1 = moore.net "wire" : !moore.int
+  moore.port In "arg2"
+  %arg2 = moore.net "wire" : !moore.bit
+  moore.port Out "res"
+  %res = moore.net "wire" : !moore.logic
 
   // CHECK: %[[EXT1:.*]] = comb.extract %[[IN1]] from 1 : (i8) -> i7
   // CHECK: %[[CONST1:.*]] = hw.constant 0 : i7
@@ -27,10 +31,14 @@ moore.module @MoorePortsAndAssignments {
 // CHECK-SAME: %[[VAL_1:.*]] : i32, in
 // CHECK-SAME: %[[VAL_2:.*]] : i1, out out : i1)
 moore.module @Instances {
-  %arg0 = moore.port In : !moore.byte
-  %arg1 = moore.port In : !moore.int
-  %arg2 = moore.port In : !moore.bit
-  %out = moore.port Out : !moore.logic
+  moore.port In "arg0"
+  %arg0 = moore.net "wire" : !moore.byte
+  moore.port In "arg1"
+  %arg1 = moore.net "wire" : !moore.int
+  moore.port In "arg2"
+  %arg2 = moore.net "wire" : !moore.bit
+  moore.port Out "out"
+  %out = moore.net "wire" : !moore.logic
 
   // CHECK: %[[VAL_3:.*]] = hw.instance "MoorePortsAndAssignments_1" @MoorePortsAndAssignments(arg0: %[[VAL_0]]: i8, arg1: %[[VAL_1]]: i32, arg2: %[[VAL_2]]: i1) -> (res: i1)
   moore.instance "MoorePortsAndAssignments_1" @MoorePortsAndAssignments(%arg0, %arg1, %arg2) -> (%out) : (!moore.byte, !moore.int, !moore.bit) -> !moore.logic
@@ -41,8 +49,10 @@ moore.module @Instances {
 // CHECK-LABEL: hw.module @ConversionCast(in
 // CHECK-SAME: %[[IN:.*]] : i1, out res : i8) {
 moore.module @ConversionCast {
-  %arg0 = moore.port In : !moore.bit
-  %res = moore.port Out : !moore.byte
+  moore.port In "arg0"
+  %arg0 = moore.net "wire" : !moore.bit
+  moore.port Out "res"
+  %res = moore.net "wire" : !moore.byte
 
   // CHECK: %[[CAT1:.*]] = comb.concat %[[IN]], %[[IN]] : i1, i1
   // CHECK: %[[CONST:.*]] = hw.constant 0 : i6
@@ -57,11 +67,16 @@ moore.module @ConversionCast {
 
 // CHECK-LABEL: hw.module @Expressions(in
 moore.module @Expressions {
-  %arg0 = moore.port In : !moore.bit
-  %arg1 = moore.port In : !moore.logic
-  %arg2 = moore.port In : !moore.packed<range<bit, 5:0>>
-  %arg3 = moore.port In : !moore.packed<range<bit<signed>, 4:0>>
-  %arg4 = moore.port In : !moore.bit<signed>
+  moore.port In "arg0"
+  %arg0 = moore.net "wire" : !moore.bit
+  moore.port In "arg1"
+  %arg1 = moore.net "wire" : !moore.logic
+  moore.port In "arg2"
+  %arg2 = moore.net "arg2" : !moore.packed<range<bit, 5:0>>
+  moore.port In "arg3"
+  %arg3 = moore.net "wire" : !moore.packed<range<bit<signed>, 4:0>>
+  moore.port In "arg4"
+  %arg4 = moore.net "wire" : !moore.bit<signed>
 
   // CHECK-NEXT: %0 = comb.concat %arg0, %arg0 : i1, i1
   // CHECK-NEXT: %1 = comb.concat %arg1, %arg1 : i1, i1
