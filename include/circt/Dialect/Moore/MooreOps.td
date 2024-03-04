@@ -42,9 +42,12 @@ def SVModuleOp : MooreOp<"module", [
     Example:
     ```mlir
       moore.module @top {
-        %a = moore.port In : !moore.logic
-        %b = moore.port In : !moore.logic
-        %c = moore.port Out : !moore.logic
+        moore.port In "a"
+        %a = moore.net "wire" : !moore.logic
+        moore.port In "b"
+        %b = moore.net "wire" : !moore.logic
+        moore.port Out "c"
+        %c = moore.net "wire" : !moore.logic
         %0 = moore.mir.shl %a, %b : !moore.logic, !moore.logic
         moore.mir.cassign %c, %0 : !moore.logic
       }
@@ -181,8 +184,10 @@ def PortOp : MooreOp<"port", [
     **In**, **Out**, **InOut**, **Ref**); port type and port name.
     Example:
     ```mlir
-      %a = moore.port In : !moore.logic
-      %b = moore.port Out : !moore.logic
+      moore.port In "a"
+      %a = moore.net "wire" : !moore.logic
+      moore.port Out "b"
+      %b = moore.net "wire" : !moore.logic
     ```
   }];
   let arguments = (ins StrAttr:$name, DirectionAttr:$direction);
@@ -318,8 +323,10 @@ def NonBlockingAssignOp : AssignOpBase<"nonblocking_assign"> {
     in a subsequent time step as dictated by the delay or event control.
     Example:
     ```mlir
-      %a = moore.port In : !moore.logic
-      %b = moore.port In : !moore.logic
+      moore.port In "a"
+      %a = moore.net "wire" : !moore.logic
+      moore.port In "b"
+      %b = moore.net "wire" : !moore.logic
       %0 = moore.variable : !moore.reg
       ......
       moore.procedure always {
@@ -432,8 +439,8 @@ def NegOp : MooreOp<"neg", [Pure, SameOperandsAndResultType]> {
     X, all bits in the result are X.
     Example:
     ```mlir
-      moore.not %a : !moore.int
-      moore.not %b : !moore.bit
+      moore.neg %a : !moore.int
+      moore.neg %b : !moore.bit
     ```
     See IEEE 1800-2017 § 11.4.3 "Arithmetic operators".
   }];
