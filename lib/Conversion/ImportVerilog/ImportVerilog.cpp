@@ -68,14 +68,6 @@ Location Context::convertLocation(slang::SourceRange range) {
   return convertLocation(range.start());
 }
 
-void Context::pushLValue(mlir::Value *lval) { lvalueStack.push_back(lval); }
-void Context::popLValue() { lvalueStack.pop_back(); }
-mlir::Value *Context::getTopLValue() const {
-  if (lvalueStack.empty())
-    return nullptr;
-  return lvalueStack.back();
-}
-
 namespace {
 /// A converter that can be plugged into a slang `DiagnosticEngine` as a client
 /// that will map slang diagnostics to their MLIR counterpart and emit them.
