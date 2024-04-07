@@ -36,14 +36,10 @@ struct MoorePortInfo {
 
 using MoorePortInfoMap = DenseMap<StringAttr, MoorePortInfo>;
 
-/// Get the Moore structure operations to HW conversion patterns.
-void populateMooreStructureConversionPatterns(TypeConverter &typeConverter,
-                                              RewritePatternSet &patterns,
-                                              MoorePortInfoMap &portInfoMap);
-
 /// Get the Moore to HW/Comb/Seq conversion patterns.
 void populateMooreToCoreConversionPatterns(TypeConverter &typeConverter,
-                                           RewritePatternSet &patterns);
+                                           RewritePatternSet &patterns,
+                                           MoorePortInfoMap &portInfoMap);
 
 /// Create an Moore to HW/Comb/Seq conversion pass.
 std::unique_ptr<OperationPass<ModuleOp>> createConvertMooreToCorePass();

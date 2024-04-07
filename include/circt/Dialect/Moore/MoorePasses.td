@@ -15,7 +15,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def MooreDeclarations : Pass<"moore-declarations", "mlir::ModuleOp"> {
+def InfoCollection : Pass<"info-collection", "mlir::ModuleOp"> {
     let summary = "Collect all nets and variables declarations";
     let description = [{
       This pass will perform a pre-pass over the IR to find all concurrently-
@@ -24,7 +24,7 @@ def MooreDeclarations : Pass<"moore-declarations", "mlir::ModuleOp"> {
       (either the initial value in nets, or the cassigned value). At the same time
       add all cassigns that has considered here into a set of ops to be deleted.
     }];
-    let constructor = "circt::moore::createMooreDeclarationsPass()";
+    let constructor = "circt::moore::createInfoCollectionPass()";
 }
 
 #endif // CIRCT_DIALECT_MOORE_MOOREPASSES_TD

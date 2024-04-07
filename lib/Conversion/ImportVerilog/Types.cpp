@@ -29,7 +29,7 @@ struct TypeVisitor {
       kind = moore::IntType::Logic;
       break;
     case slang::ast::ScalarType::Reg:
-      kind = moore::IntType::Reg;
+      kind = moore::IntType::Logic;
       break;
     }
 
@@ -190,6 +190,11 @@ struct TypeVisitor {
       return {};
     return moore::UnpackedStructType::get(moore::StructKind::Struct, members,
                                           StringAttr{}, loc);
+  }
+
+  // Handle void types.
+  Type visit(const slang::ast::VoidType &type) {
+    return moore::VoidType::get(context.getContext());
   }
 
   /// Emit an error for all other types.

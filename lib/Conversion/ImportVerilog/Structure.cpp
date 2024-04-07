@@ -98,9 +98,20 @@ struct MemberVisitor {
   LogicalResult visit(const slang::ast::TypeAliasType &) { return success(); }
 
   // Skip parameters. The AST is already monomorphized.
-  LogicalResult visit(const slang::ast::ParameterSymbol &) { return success(); }
+  LogicalResult visit(const slang::ast::ParameterSymbol &paramNode) {
+    auto type = context.convertType(paramNode.getType());
+    auto constant = paramNode.getValue().integer().as<int64_t>().value();
+    auto value = builder.create<moore::ConstantOp>(loc, type, constant);
+    context.valueSymbols.insert(&paramNode, value);
+    return success();
+  }
   LogicalResult visit(const slang::ast::TypeParameterSymbol &) {
     return success();
+  }
+
+  // Skip genvar.
+  LogicalResult visit(const slang::ast::GenvarSymbol &) {
+    return mlir::success();
   }
 
   // Handle instances.
@@ -181,6 +192,11 @@ struct MemberVisitor {
       assignment = context.convertExpression(*netNode.getInitializer());
       if (!assignment)
         return failure();
+
+      if (assignment.getType() != loweredType) {
+        assignment =
+            builder.create<moore::ConversionOp>(loc, loweredType, assignment);
+      }
     }
 
     auto netOp = builder.create<moore::NetOp>(
@@ -243,6 +259,26 @@ struct MemberVisitor {
   // expected, but will also create a `StatementBlockSymbol` with just the
   // variable layout _next to_ the initial procedure.
   LogicalResult visit(const slang::ast::StatementBlockSymbol &) {
+    return success();
+  }
+
+  // Handle GenerateBlock
+  LogicalResult visit(const slang::ast::GenerateBlockSymbol &genNode) {
+    if (!genNode.isUninstantiated) {
+      for (auto &member : genNode.members()) {
+        if (failed(member.visit(MemberVisitor(context, loc))))
+          return failure();
+      }
+    }
+    return success();
+  }
+
+  // Handle GenerateBlockArray
+  LogicalResult visit(const slang::ast::GenerateBlockArraySymbol &genArrNode) {
+    for (const auto *member : genArrNode.entries) {
+      if (failed(member->asSymbol().visit(MemberVisitor(context, loc))))
+        return failure();
+    }
     return success();
   }
 

@@ -1,5 +1,5 @@
 add_circt_dialect_library(CIRCTMooreTransforms
-  MooreDeclarations.cpp
+InfoCollection.cpp
 
   DEPENDS
   CIRCTMooreTransformsIncGen

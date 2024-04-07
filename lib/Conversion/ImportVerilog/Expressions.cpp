@@ -197,6 +197,8 @@ struct ExprVisitor {
   Value createBinary(Value lhs, Value rhs) {
     lhs = convertToSimpleBitVector(lhs);
     rhs = convertToSimpleBitVector(rhs);
+    if (lhs.getType() != rhs.getType())
+      rhs = builder.create<moore::ConversionOp>(loc, lhs.getType(), rhs);
     if (!lhs || !rhs)
       return {};
     return builder.create<ConcreteOp>(loc, lhs, rhs);
@@ -413,6 +415,29 @@ struct ExprVisitor {
     if (!value || !lowBit)
       return {};
     return builder.create<moore::ExtractOp>(loc, type, value, lowBit);
+  }
+
+  // Handle `? :`.
+  Value visit(const slang::ast::ConditionalExpression &expr) {
+    Value cond = context.convertExpression(*expr.conditions.begin()->expr);
+    cond = convertToBool(cond);
+    if (!cond)
+      return {};
+    cond = builder.create<moore::ConversionOp>(loc, builder.getI1Type(), cond);
+
+    auto ifOp = builder.create<mlir::scf::IfOp>(
+        loc, cond,
+        [&](OpBuilder &builder, Location loc) {
+          builder.create<mlir::scf::YieldOp>(
+              loc,
+              convertToSimpleBitVector(context.convertExpression(expr.left())));
+        },
+        [&](OpBuilder &builder, Location loc) {
+          builder.create<mlir::scf::YieldOp>(
+              loc, convertToSimpleBitVector(
+                       context.convertExpression(expr.right())));
+        });
+    return ifOp.getResult(0);
   }
 
   /// Emit an error for all other expressions.
