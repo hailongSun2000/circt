@@ -19,12 +19,20 @@ def InfoCollection : Pass<"info-collection", "mlir::ModuleOp"> {
     let summary = "Collect all nets and variables declarations";
     let description = [{
       This pass will perform a pre-pass over the IR to find all concurrently-
-      assigned output ports, nets and variables. Basically go through all output
-      port/net/variable declarations and collect the connected value in a hash map
-      (either the initial value in nets, or the cassigned value). At the same time
-      add all cassigns that has considered here into a set of ops to be deleted.
+      assigned nets and variables. Basically go through all net/variable 
+      declarations and collect the connected value in a hash map (either the
+      initial value in net declaration or the assigned value).
     }];
     let constructor = "circt::moore::createInfoCollectionPass()";
+}
+
+def DeleteLocalVar : Pass<"delete-local-var", "mlir::ModuleOp"> {
+  let summary = "Delete local temporary variables";
+  let description = [{
+    This pass is aimed to delete local temporary variables and replace all
+    uses by directly using their value.
+  }];
+  let constructor = "circt::moore::createDeleteLocalVarPass()";
 }
 
 #endif // CIRCT_DIALECT_MOORE_MOOREPASSES_TD

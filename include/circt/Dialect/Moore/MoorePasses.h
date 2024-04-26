@@ -38,6 +38,8 @@ public:
 extern Declaration decl;
 std::unique_ptr<mlir::Pass> createInfoCollectionPass();
 
+std::unique_ptr<mlir::Pass> createDeleteLocalVarPass();
+
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION
 #include "circt/Dialect/Moore/MoorePasses.h.inc"
